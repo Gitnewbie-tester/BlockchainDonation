@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:web3dart/web3dart.dart';
 import 'package:http/http.dart' as http;
 
@@ -27,6 +28,50 @@ class BlockchainService {
     } catch (e) {
       print('Error fetching balance: $e');
       return '0.0000';
+    }
+  }
+
+  /// Get pending transactions from mempool for a specific address
+  /// This queries the blockchain node for pending transactions
+  Future<String?> getPendingTransactionHash(String fromAddress) async {
+    try {
+      print('🔍 Checking pending transactions for: $fromAddress');
+      
+      // Query pending transactions using eth_pendingTransactions
+      // Note: Not all RPC providers support this method
+      final response = await http.post(
+        Uri.parse(_rpcUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'method': 'eth_getBlockByNumber',
+          'params': ['pending', true],
+          'id': 1,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['result'] != null && data['result']['transactions'] != null) {
+          final transactions = data['result']['transactions'] as List;
+          
+          // Find the most recent transaction from this address
+          for (var tx in transactions.reversed) {
+            if (tx['from'] != null && 
+                tx['from'].toString().toLowerCase() == fromAddress.toLowerCase()) {
+              final hash = tx['hash'] as String;
+              print('✅ Found pending transaction: $hash');
+              return hash;
+            }
+          }
+        }
+      }
+      
+      print('ℹ️ No pending transactions found');
+      return null;
+    } catch (e) {
+      print('❌ Error getting pending transaction: $e');
+      return null;
     }
   }
 
@@ -106,6 +151,85 @@ class BlockchainService {
       return null; // Timeout
     } catch (e) {
       print('Error waiting for transaction: $e');
+      return null;
+    }
+  }
+
+  /// Gets transaction details including gas used and block number
+  /// Returns a map with transaction information or null if not found
+  Future<Map<String, dynamic>?> getTransactionDetails(String txHash) async {
+    try {
+      final receipt = await _client.getTransactionReceipt(txHash);
+      
+      if (receipt != null) {
+        // Format gas used with commas
+        final gasUsedStr = receipt.gasUsed?.toInt().toString() ?? '0';
+        final gasUsedFormatted = _formatWithCommas(gasUsedStr);
+        
+        return {
+          'gasUsed': gasUsedFormatted,
+          'blockNumber': receipt.blockNumber.blockNum.toString(),
+          'status': receipt.status ?? false,
+        };
+      }
+      
+      // Transaction not yet mined
+      return null;
+    } catch (e) {
+      print('Error fetching transaction details: $e');
+      return null;
+    }
+  }
+
+  /// Helper to format numbers with commas
+  String _formatWithCommas(String number) {
+    final parts = number.split('.');
+    final intPart = parts[0];
+    final buffer = StringBuffer();
+    
+    for (int i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(intPart[i]);
+    }
+    
+    if (parts.length > 1) {
+      buffer.write('.');
+      buffer.write(parts[1]);
+    }
+    
+    return buffer.toString();
+  }
+
+  /// Gets the most recent transaction from an address using Etherscan API
+  /// This helps recover transaction hashes when WalletConnect relay fails
+  Future<String?> getMostRecentTransaction(String address) async {
+    try {
+      // Use Etherscan API to get recent transactions
+      // Note: This requires an API key for production use
+      // For now, we'll use the free tier endpoint
+      final url = Uri.parse(
+        'https://api-sepolia.etherscan.io/api?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&page=1&offset=1&sort=desc'
+      );
+      
+      print('🔍 Querying Etherscan for recent transactions from $address');
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == '1' && data['result'] is List && (data['result'] as List).isNotEmpty) {
+          final txHash = data['result'][0]['hash'];
+          print('✅ Found recent transaction: $txHash');
+          return txHash;
+        }
+      }
+      
+      print('⚠️ No recent transactions found');
+      return null;
+    } catch (e) {
+      print('Error getting recent transaction: $e');
       return null;
     }
   }

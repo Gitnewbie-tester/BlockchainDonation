@@ -304,51 +304,76 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                         const SizedBox(height: 16),
                                         
                                         // Transaction Hash
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          crossAxisAlignment: CrossAxisAlignment.center,
-                                          children: [
-                                            const Text(
-                                              'Transaction Hash:',
-                                              style: TextStyle(
-                                                color: AppTheme.slate600,
-                                                fontSize: 14,
-                                              ),
+                                        if (donation.transactionHash == 'RELAY_TIMEOUT_CHECK_METAMASK')
+                                          Container(
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade50,
+                                              border: Border.all(color: Colors.orange.shade200),
+                                              borderRadius: BorderRadius.circular(8),
                                             ),
-                                            Row(
+                                            child: Row(
                                               children: [
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                  decoration: BoxDecoration(
-                                                    color: AppTheme.slate100,
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
+                                                Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+                                                const SizedBox(width: 8),
+                                                Expanded(
                                                   child: Text(
-                                                    _formatHash(donation.transactionHash),
-                                                    style: const TextStyle(
-                                                      fontFamily: 'monospace',
-                                                      fontSize: 11,
-                                                    ),
-                                                  ),
-                                                ),
-                                                IconButton(
-                                                  icon: const Icon(Icons.copy, size: 14),
-                                                  padding: const EdgeInsets.all(4),
-                                                  constraints: const BoxConstraints(),
-                                                  onPressed: () => _copyTransactionHash(donation.transactionHash),
-                                                ),
-                                                if (_copied)
-                                                  const Text(
-                                                    'Copied!',
+                                                    'Check your MetaMask Activity tab for the transaction hash. Your donation was sent successfully!',
                                                     style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: AppTheme.green600,
+                                                      fontSize: 13,
+                                                      color: Colors.orange.shade900,
                                                     ),
                                                   ),
+                                                ),
                                               ],
                                             ),
-                                          ],
-                                        ),
+                                          )
+                                        else
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              const Text(
+                                                'Transaction Hash:',
+                                                style: TextStyle(
+                                                  color: AppTheme.slate600,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: AppTheme.slate100,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      _formatHash(donation.transactionHash),
+                                                      style: const TextStyle(
+                                                        fontFamily: 'monospace',
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  IconButton(
+                                                    icon: const Icon(Icons.copy, size: 14),
+                                                    padding: const EdgeInsets.all(4),
+                                                    constraints: const BoxConstraints(),
+                                                    onPressed: () => _copyTransactionHash(donation.transactionHash),
+                                                  ),
+                                                  if (_copied)
+                                                    const Text(
+                                                      'Copied!',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: AppTheme.green600,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
                                         const SizedBox(height: 16),
                                         
                                         // Block Number
@@ -362,16 +387,46 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                 fontSize: 14,
                                               ),
                                             ),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                border: Border.all(color: AppTheme.slate200),
-                                                borderRadius: BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                donation.blockNumber,
-                                                style: const TextStyle(fontSize: 12),
-                                              ),
+                                            Row(
+                                              children: [
+                                                if (donation.blockNumber.contains('Pending'))
+                                                  const SizedBox(
+                                                    width: 12,
+                                                    height: 12,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: AppTheme.blue500,
+                                                    ),
+                                                  ),
+                                                if (donation.blockNumber.contains('Pending'))
+                                                  const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    border: Border.all(
+                                                      color: donation.blockNumber.contains('Pending')
+                                                          ? AppTheme.slate200
+                                                          : AppTheme.green200,
+                                                    ),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    color: donation.blockNumber.contains('Pending')
+                                                        ? AppTheme.slate50
+                                                        : AppTheme.green50,
+                                                  ),
+                                                  child: Text(
+                                                    donation.blockNumber,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: donation.blockNumber.contains('Pending')
+                                                          ? AppTheme.slate400
+                                                          : AppTheme.slate800,
+                                                      fontWeight: donation.blockNumber.contains('Pending')
+                                                          ? FontWeight.normal
+                                                          : FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
@@ -392,32 +447,51 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                             Column(
                                               crossAxisAlignment: CrossAxisAlignment.end,
                                               children: [
-                                                Text(
-                                                  donation.gasUsed,
-                                                  style: const TextStyle(
-                                                    fontFamily: 'monospace',
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
                                                 Row(
                                                   children: [
-                                                    Text(
-                                                      '\$$gasUsd USD',
-                                                      style: const TextStyle(
-                                                        fontSize: 11,
-                                                        color: AppTheme.slate500,
+                                                    if (donation.gasUsed.contains('Pending'))
+                                                      const SizedBox(
+                                                        width: 12,
+                                                        height: 12,
+                                                        child: CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: AppTheme.blue500,
+                                                        ),
                                                       ),
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    const Text(
-                                                      'Live',
+                                                    if (donation.gasUsed.contains('Pending'))
+                                                      const SizedBox(width: 8),
+                                                    Text(
+                                                      donation.gasUsed,
                                                       style: TextStyle(
+                                                        fontFamily: 'monospace',
                                                         fontSize: 11,
-                                                        color: AppTheme.green600,
+                                                        color: donation.gasUsed.contains('Pending')
+                                                            ? AppTheme.slate400
+                                                            : AppTheme.slate800,
                                                       ),
                                                     ),
                                                   ],
                                                 ),
+                                                if (!donation.gasUsed.contains('Pending'))
+                                                  Row(
+                                                    children: [
+                                                      Text(
+                                                        '\$$gasUsd USD',
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          color: AppTheme.slate500,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      const Text(
+                                                        'Live',
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: AppTheme.green600,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                               ],
                                             ),
                                           ],
@@ -454,7 +528,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: OutlinedButton.icon(
-                                            onPressed: () => _launchEtherscan(donation.transactionHash),
+                                            onPressed: donation.transactionHash == 'RELAY_TIMEOUT_CHECK_METAMASK'
+                                                ? null
+                                                : () => _launchEtherscan(donation.transactionHash),
                                             icon: const Icon(Icons.open_in_new, size: 16),
                                             label: const Text('View on Etherscan'),
                                             style: OutlinedButton.styleFrom(

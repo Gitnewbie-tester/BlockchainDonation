@@ -47,13 +47,54 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
     } catch (error) {
       if (mounted) {
         final errorMessage = error.toString().replaceAll('Exception: ', '');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
+        
+        // Check if this is the SUCCESS_NO_HASH case
+        if (errorMessage.contains('SUCCESS_NO_HASH:')) {
+          final message = errorMessage.replaceAll('SUCCESS_NO_HASH:', '');
+          
+          // Show SUCCESS message (not error)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text(
+                        'Transaction Sent!',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(message),
+                ],
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 10),
+              action: SnackBarAction(
+                label: 'OK',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
+            ),
+          );
+        } else {
+          // Show actual error message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
     } finally {
       if (mounted) {

@@ -274,7 +274,55 @@ class AppState extends ChangeNotifier {
         print('Transaction sent! Hash: $txHash');
       }
     } catch (e) {
-      throw Exception('Transaction failed: $e');
+      // Check if this is the relay timeout (but transaction succeeded)
+      final errorMsg = e.toString();
+      if (errorMsg.contains('SUCCESS_NO_HASH:')) {
+        if (kDebugMode) {
+          print('🔍 Relay timeout - transaction succeeded but relay did not return hash');
+          print('📡 Attempting to fetch transaction hash from blockchain...');
+        }
+        
+        // Try to get the pending transaction hash from the blockchain
+        // The transaction was just broadcast, so it should be in pending state
+        String? fetchedHash;
+        
+        // Try multiple times with delays (transaction needs time to propagate)
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          if (kDebugMode) {
+            print('🔎 Attempt $attempt/3: Checking for pending transaction...');
+          }
+          
+          await Future.delayed(Duration(seconds: 2 * attempt)); // 2s, 4s, 6s
+          
+          try {
+            fetchedHash = await _blockchainService.getPendingTransactionHash(_walletAddress);
+            
+            if (fetchedHash != null && fetchedHash.isNotEmpty) {
+              if (kDebugMode) {
+                print('✅ Successfully retrieved transaction hash: $fetchedHash');
+              }
+              break;
+            }
+          } catch (fetchError) {
+            if (kDebugMode) {
+              print('⚠️ Attempt $attempt failed: $fetchError');
+            }
+          }
+        }
+        
+        if (fetchedHash == null || fetchedHash.isEmpty) {
+          if (kDebugMode) {
+            print('⚠️ Could not retrieve transaction hash after 3 attempts');
+            print('📋 Creating receipt with placeholder - user can check MetaMask');
+          }
+          // Fallback to special hash if we couldn't find it
+          txHash = 'RELAY_TIMEOUT_CHECK_METAMASK';
+        } else {
+          txHash = fetchedHash;
+        }
+      } else {
+        throw Exception('Transaction failed: $e');
+      }
     }
 
     // Generate receipt metadata
@@ -282,33 +330,185 @@ class AppState extends ChangeNotifier {
     final gatewayUrl = 'https://ipfs.io/ipfs/$cid';
     const int sizeBytes = 512;
 
-    // Record donation in database
-    await _apiService.recordDonation(
-      txHash: txHash,
-      donorAddress: _walletAddress,
-      campaignId: campaignId,
-      amountWei: weiAmount,
-      cid: cid,
-      sizeBytes: sizeBytes,
-      gatewayUrl: gatewayUrl,
-    );
+    // Record donation in database only if we have a real transaction hash
+    if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK') {
+      try {
+        await _apiService.recordDonation(
+          txHash: txHash,
+          donorAddress: _walletAddress,
+          campaignId: campaignId,
+          amountWei: weiAmount,
+          cid: cid,
+          sizeBytes: sizeBytes,
+          gatewayUrl: gatewayUrl,
+        );
 
-    await _refreshDashboardStats();
-    await _refreshWalletBalance();
-    await loadCampaigns(forceRefresh: true);
+        await _refreshDashboardStats();
+        await _refreshWalletBalance();
+        await loadCampaigns(forceRefresh: true);
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Failed to record donation in database: $e');
+          print('   The transaction was successful on blockchain, but database recording failed');
+        }
+        // Don't throw - we still want to show the receipt even if database fails
+      }
+    } else {
+      if (kDebugMode) {
+        print('ℹ️ Skipping database recording - no real transaction hash available');
+        print('   User can verify transaction in MetaMask Activity tab');
+      }
+    }
 
+    // Create initial donation with pending status
     _lastDonation = Donation(
       amount: amount,
       charity: charity.title,
       message: message.isEmpty ? null : message,
       transactionHash: txHash,
       timestamp: DateTime.now().toString(),
-      gasUsed: '21,000',
-      blockNumber: 'Pending',
+      gasUsed: 'Pending...',
+      blockNumber: 'Pending...',
     );
 
     _currentScreen = Screen.receipt;
     notifyListeners();
+
+    // Fetch real transaction details in the background
+    // Skip if we have the special timeout hash (no real hash available)
+    if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK') {
+      _fetchTransactionDetails(txHash, amount, charity.title, message);
+    }
+  }
+
+  /// Fetches real transaction details from blockchain
+  Future<void> _fetchTransactionDetails(
+    String txHash,
+    String amount,
+    String charityTitle,
+    String message,
+  ) async {
+    try {
+      if (kDebugMode) {
+        print('Fetching transaction details for: $txHash');
+      }
+
+      // Poll for transaction details (wait up to 2 minutes)
+      for (int i = 0; i < 24; i++) {
+        await Future.delayed(const Duration(seconds: 5));
+        
+        final details = await _blockchainService.getTransactionDetails(txHash);
+        
+        if (details != null) {
+          if (kDebugMode) {
+            print('Transaction confirmed!');
+            print('Gas used: ${details['gasUsed']}');
+            print('Block number: ${details['blockNumber']}');
+          }
+
+          // Update the donation with real details
+          _lastDonation = Donation(
+            amount: amount,
+            charity: charityTitle,
+            message: message.isEmpty ? null : message,
+            transactionHash: txHash,
+            timestamp: DateTime.now().toString(),
+            gasUsed: details['gasUsed'] ?? '21,000',
+            blockNumber: details['blockNumber'] ?? 'Unknown',
+          );
+          
+          notifyListeners();
+          return;
+        }
+      }
+
+      // Timeout - keep as pending
+      if (kDebugMode) {
+        print('Transaction still pending after 2 minutes');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching transaction details: $e');
+      }
+      // Keep the pending values if fetch fails
+    }
+  }
+
+  Future<void> submitDonationWithHash(String amount, String message, String txHash) async {
+    final charity = _selectedCharity;
+    if (charity == null) {
+      throw Exception('No charity selected');
+    }
+    
+    if (kDebugMode) {
+      print('Recording donation with manual transaction hash: $txHash');
+    }
+
+    final ethAmount = double.tryParse(amount) ?? 0;
+    if (ethAmount <= 0) {
+      throw Exception('Invalid donation amount');
+    }
+
+    if (_walletAddress.isEmpty) {
+      throw Exception('Wallet not connected');
+    }
+    
+    final campaignId = charity.id.trim();
+    if (campaignId.isEmpty) {
+      throw Exception('Selected campaign has no ID');
+    }
+
+    // Validate transaction hash format
+    if (!txHash.startsWith('0x') || txHash.length != 66) {
+      throw Exception('Invalid transaction hash format');
+    }
+
+    const double weiPerEth = 1000000000000000000;
+    final weiAmount = (ethAmount * weiPerEth).round();
+
+    // Generate receipt metadata
+    final cid = 'receipt-${DateTime.now().millisecondsSinceEpoch}';
+    final gatewayUrl = 'https://ipfs.io/ipfs/$cid';
+    const int sizeBytes = 512;
+
+    // Record donation in database
+    try {
+      await _apiService.recordDonation(
+        txHash: txHash,
+        donorAddress: _walletAddress,
+        campaignId: campaignId,
+        amountWei: weiAmount,
+        cid: cid,
+        sizeBytes: sizeBytes,
+        gatewayUrl: gatewayUrl,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error recording donation: $e');
+      }
+      throw Exception('Failed to record donation: $e');
+    }
+
+    await _refreshDashboardStats();
+    await _refreshWalletBalance();
+    await loadCampaigns(forceRefresh: true);
+
+    // Create initial donation with pending status
+    _lastDonation = Donation(
+      amount: amount,
+      charity: charity.title,
+      message: message.isEmpty ? null : message,
+      transactionHash: txHash,
+      timestamp: DateTime.now().toString(),
+      gasUsed: 'Pending...',
+      blockNumber: 'Pending...',
+    );
+
+    _currentScreen = Screen.receipt;
+    notifyListeners();
+
+    // Fetch real transaction details in the background
+    _fetchTransactionDetails(txHash, amount, charity.title, message);
   }
 
   void updateUser(User updatedUser) {
