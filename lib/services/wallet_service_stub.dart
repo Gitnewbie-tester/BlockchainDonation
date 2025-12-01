@@ -20,10 +20,16 @@ class _UnsupportedWalletConnector implements WalletConnector {
   }
 
   @override
+  Future<void> disconnect() async {
+    throw WalletException('No wallet support on this platform.');
+  }
+
+  @override
   Future<String> sendTransaction({
     required String from,
     required String to,
     required String value,
+    String? data,
   }) {
     throw WalletException('No wallet support on this platform.');
   }

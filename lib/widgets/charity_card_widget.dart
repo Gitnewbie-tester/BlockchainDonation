@@ -121,12 +121,15 @@ class CharityCardWidget extends StatelessWidget {
                           color: AppTheme.slate600,
                         ),
                       ),
-                      Text(
-                        progressLabel,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.slate800,
+                      Flexible(
+                        child: Text(
+                          progressLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.slate800,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

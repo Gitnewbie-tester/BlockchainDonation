@@ -85,12 +85,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               ),
             ),
             child: SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 672), // max-w-2xl
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         // Back Button
                         Align(
@@ -124,7 +125,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                             children: [
                               // Header with gradient
                               Container(
-                                padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
                                 decoration: const BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: [AppTheme.green500, AppTheme.blue500], // green-500 to blue-500
@@ -135,7 +136,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                   children: [
                                     // Success Icon
                                     Container(
-                                      padding: const EdgeInsets.all(16),
+                                      padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
                                         color: Colors.white.withOpacity(0.2),
                                         shape: BoxShape.circle,
@@ -143,21 +144,21 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                       child: const Icon(
                                         Icons.check_circle_outline,
                                         color: Colors.white,
-                                        size: 48,
+                                        size: 40,
                                       ),
                                     ),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
                                     
                                     const Text(
                                       'Donation Successful!',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 24,
+                                        fontSize: 22,
                                         fontWeight: FontWeight.w600,
                                       ),
                                       textAlign: TextAlign.center,
                                     ),
-                                    const SizedBox(height: 8),
+                                    const SizedBox(height: 6),
                                     
                                     const Text(
                                       'Your contribution has been processed and is now helping make a difference',
@@ -173,7 +174,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
                               // Content
                               Padding(
-                                padding: const EdgeInsets.all(32),
+                                padding: const EdgeInsets.all(20),
                                 child: Column(
                                   children: [
                                     // Donation Summary
@@ -182,12 +183,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                         Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            const Icon(Icons.favorite, color: Color(0xFFEF4444), size: 24), // red-500
+                                            const Icon(Icons.favorite, color: Color(0xFFEF4444), size: 20), // red-500
                                             const SizedBox(width: 8),
                                             Text(
                                               '${donation.amount} ETH',
                                               style: const TextStyle(
-                                                fontSize: 30,
+                                                fontSize: 26,
                                                 fontWeight: FontWeight.bold,
                                                 color: AppTheme.slate800,
                                               ),
@@ -248,14 +249,14 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                       ],
                                     ),
                                     
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
                                     const Divider(color: AppTheme.slate200),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
 
                                     // Message (if exists)
                                     if (donation.message != null && donation.message!.isNotEmpty) ...[
                                       Container(
-                                        padding: const EdgeInsets.all(16),
+                                        padding: const EdgeInsets.all(12),
                                         decoration: BoxDecoration(
                                           color: AppTheme.blue50,
                                           border: Border.all(color: AppTheme.blue200),
@@ -284,9 +285,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                           ],
                                         ),
                                       ),
-                                      const SizedBox(height: 24),
+                                      const SizedBox(height: 16),
                                       const Divider(color: AppTheme.slate200),
-                                      const SizedBox(height: 24),
+                                      const SizedBox(height: 16),
                                     ],
 
                                     // Transaction Details
@@ -340,8 +341,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                   fontSize: 14,
                                                 ),
                                               ),
-                                              Row(
-                                                children: [
+                                              Flexible(
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
                                                   Container(
                                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                     decoration: BoxDecoration(
@@ -370,7 +373,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                         color: AppTheme.green600,
                                                       ),
                                                     ),
-                                                ],
+                                                  ],
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -389,7 +393,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                             ),
                                             Row(
                                               children: [
-                                                if (donation.blockNumber.contains('Pending'))
+                                                if (donation.blockNumber.contains('Pending') && !donation.blockNumber.contains('Unavailable'))
                                                   const SizedBox(
                                                     width: 12,
                                                     height: 12,
@@ -404,22 +408,28 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                   decoration: BoxDecoration(
                                                     border: Border.all(
-                                                      color: donation.blockNumber.contains('Pending')
-                                                          ? AppTheme.slate200
-                                                          : AppTheme.green200,
+                                                      color: donation.blockNumber.contains('Unavailable')
+                                                          ? Colors.orange.shade200
+                                                          : (donation.blockNumber.contains('Pending')
+                                                              ? AppTheme.slate200
+                                                              : AppTheme.green200),
                                                     ),
                                                     borderRadius: BorderRadius.circular(4),
-                                                    color: donation.blockNumber.contains('Pending')
-                                                        ? AppTheme.slate50
-                                                        : AppTheme.green50,
+                                                    color: donation.blockNumber.contains('Unavailable')
+                                                        ? Colors.orange.shade50
+                                                        : (donation.blockNumber.contains('Pending')
+                                                            ? AppTheme.slate50
+                                                            : AppTheme.green50),
                                                   ),
                                                   child: Text(
                                                     donation.blockNumber,
                                                     style: TextStyle(
                                                       fontSize: 12,
-                                                      color: donation.blockNumber.contains('Pending')
-                                                          ? AppTheme.slate400
-                                                          : AppTheme.slate800,
+                                                      color: donation.blockNumber.contains('Unavailable')
+                                                          ? Colors.orange.shade700
+                                                          : (donation.blockNumber.contains('Pending')
+                                                              ? AppTheme.slate400
+                                                              : AppTheme.slate800),
                                                       fontWeight: donation.blockNumber.contains('Pending')
                                                           ? FontWeight.normal
                                                           : FontWeight.w500,
@@ -449,7 +459,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                               children: [
                                                 Row(
                                                   children: [
-                                                    if (donation.gasUsed.contains('Pending'))
+                                                    if (donation.gasUsed.contains('Pending') && !donation.gasUsed.contains('Unavailable'))
                                                       const SizedBox(
                                                         width: 12,
                                                         height: 12,
@@ -458,21 +468,23 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                           color: AppTheme.blue500,
                                                         ),
                                                       ),
-                                                    if (donation.gasUsed.contains('Pending'))
+                                                    if (donation.gasUsed.contains('Pending') && !donation.gasUsed.contains('Unavailable'))
                                                       const SizedBox(width: 8),
                                                     Text(
                                                       donation.gasUsed,
                                                       style: TextStyle(
                                                         fontFamily: 'monospace',
                                                         fontSize: 11,
-                                                        color: donation.gasUsed.contains('Pending')
-                                                            ? AppTheme.slate400
-                                                            : AppTheme.slate800,
+                                                        color: donation.gasUsed.contains('Unavailable')
+                                                            ? Colors.orange.shade700
+                                                            : (donation.gasUsed.contains('Pending')
+                                                                ? AppTheme.slate400
+                                                                : AppTheme.slate800),
                                                       ),
                                                     ),
                                                   ],
                                                 ),
-                                                if (!donation.gasUsed.contains('Pending'))
+                                                if (!donation.gasUsed.contains('Pending') && !donation.gasUsed.contains('Unavailable'))
                                                   Row(
                                                     children: [
                                                       Text(
@@ -518,9 +530,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                       ],
                                     ),
                                     
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
                                     const Divider(color: AppTheme.slate200),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
 
                                     // Action Buttons
                                     Column(
@@ -528,7 +540,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                         SizedBox(
                                           width: double.infinity,
                                           child: OutlinedButton.icon(
-                                            onPressed: donation.transactionHash == 'RELAY_TIMEOUT_CHECK_METAMASK'
+                                            onPressed: (donation.transactionHash == 'RELAY_TIMEOUT_CHECK_METAMASK' || 
+                                                       donation.blockNumber.contains('Unavailable'))
                                                 ? null
                                                 : () => _launchEtherscan(donation.transactionHash),
                                             icon: const Icon(Icons.open_in_new, size: 16),
@@ -537,7 +550,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                               side: const BorderSide(color: AppTheme.blue200),
                                               backgroundColor: Colors.white,
                                               foregroundColor: AppTheme.blue600,
-                                              padding: const EdgeInsets.symmetric(vertical: 16),
+                                              padding: const EdgeInsets.symmetric(vertical: 12),
                                             ),
                                           ),
                                         ),
@@ -560,7 +573,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                                 backgroundColor: Colors.transparent,
                                                 foregroundColor: Colors.white,
                                                 shadowColor: Colors.transparent,
-                                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                                padding: const EdgeInsets.symmetric(vertical: 12),
                                               ),
                                             ),
                                           ),
@@ -568,7 +581,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                       ],
                                     ),
 
-                                    const SizedBox(height: 16),
+                                    const SizedBox(height: 12),
 
                                     // Footer Message
                                     Column(

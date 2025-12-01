@@ -7,10 +7,13 @@ abstract class WalletConnector {
   bool get isWalletConnectAvailable;
   Future<String> connectWithWalletConnect(BuildContext context);
   
+  Future<void> disconnect();
+  
   Future<String> sendTransaction({
     required String from,
     required String to,
     required String value,
+    String? data,
   });
 }
 

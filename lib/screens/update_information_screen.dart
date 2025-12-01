@@ -33,7 +33,7 @@ class _UpdateInformationScreenState extends State<UpdateInformationScreen> {
     super.dispose();
   }
 
-  void _handleSave() {
+  Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) return;
     
     final state = Provider.of<AppState>(context, listen: false);
@@ -44,12 +44,24 @@ class _UpdateInformationScreenState extends State<UpdateInformationScreen> {
       age: int.tryParse(_ageController.text),
     );
     
-    state.updateUser(updatedUser);
-    state.navigateTo(Screen.profile);
+    // Show loading
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Updating information...')),
+      );
+    }
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Information updated successfully')),
-    );
+    await state.updateUser(updatedUser);
+    
+    if (mounted) {
+      state.navigateTo(Screen.profile);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Information updated successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   @override

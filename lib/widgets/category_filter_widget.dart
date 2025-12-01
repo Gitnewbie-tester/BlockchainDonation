@@ -5,12 +5,16 @@ class CategoryFilterWidget extends StatelessWidget {
   final List<String> categories;
   final String? selectedCategory;
   final Function(String?) onCategorySelect;
+  final String searchQuery;
+  final Function(String) onSearchChanged;
 
   const CategoryFilterWidget({
     super.key,
     required this.categories,
     required this.selectedCategory,
     required this.onCategorySelect,
+    required this.searchQuery,
+    required this.onSearchChanged,
   });
 
   @override
@@ -18,14 +22,36 @@ class CategoryFilterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Filter by Category',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: AppTheme.slate800,
+        // Search bar
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.slate200),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextField(
+            onChanged: onSearchChanged,
+            decoration: InputDecoration(
+              hintText: 'Search campaigns...',
+              hintStyle: TextStyle(color: AppTheme.slate400),
+              prefixIcon: Icon(Icons.search, color: AppTheme.slate400),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
+        // Category chips
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(

@@ -85,6 +85,38 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
               ),
             ),
           );
+        } else if (errorMessage.contains('TRANSACTION_REJECTED:') || 
+                   errorMessage.contains('cancelled by user') ||
+                   errorMessage.contains('Transaction was cancelled') ||
+                   errorMessage.contains('rejected by user')) {
+          // User cancelled/rejected the transaction
+          final message = errorMessage
+              .replaceAll('TRANSACTION_REJECTED:', '')
+              .replaceAll('Transaction was ', '')
+              .replaceAll('by user', '')
+              .trim();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.cancel, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      message.isEmpty ? 'Transaction was cancelled' : message,
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          
+          // Don't navigate - stay on donation form
+          return;
         } else {
           // Show actual error message
           ScaffoldMessenger.of(context).showSnackBar(
@@ -173,9 +205,37 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Donation Amount (ETH)',
-                                style: Theme.of(context).textTheme.titleMedium,
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Donation Amount (ETH)',
+                                    style: Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.account_balance_wallet, size: 16, color: Colors.blue),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Balance: ${state.walletBalance} ETH',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.blue,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
                               TextFormField(
@@ -183,6 +243,7 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
                                 decoration: const InputDecoration(
                                   hintText: '0.00',
                                   prefixText: 'ETH ',
+                                  helperText: 'Note: ~0.002 ETH will be needed for gas fees',
                                 ),
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 validator: (value) {
@@ -193,6 +254,18 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
                                   if (amount == null || amount <= 0) {
                                     return 'Please enter a valid amount';
                                   }
+                                  
+                                  // Check against wallet balance
+                                  final balance = double.tryParse(state.walletBalance) ?? 0;
+                                  if (amount > balance) {
+                                    return 'Insufficient balance (${state.walletBalance} ETH)';
+                                  }
+                                  
+                                  // Check if enough for gas
+                                  if (amount + 0.002 > balance) {
+                                    return 'Not enough ETH for gas fees (~0.002 ETH needed)';
+                                  }
+                                  
                                   return null;
                                 },
                               ),

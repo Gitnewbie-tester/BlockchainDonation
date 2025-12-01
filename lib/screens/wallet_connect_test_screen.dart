@@ -74,21 +74,15 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
       _appLifecycleState = state.toString().split('.').last;
     });
     
-    // When app resumes from background, start aggressive polling
+    // When app resumes, just check connection once
     if (state == AppLifecycleState.resumed && _isConnecting) {
-      print('🔄 App resumed - checking immediately then starting polling...');
-      
-      // Check immediately first
-      _checkConnection();
-      
-      // Then start polling in case it takes a moment
+      print('🔄 App resumed - checking connection...');
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted && _isConnecting) {
-          _startConnectionPolling();
+          _checkConnection();
         }
       });
     } else if (state == AppLifecycleState.paused) {
-      // App went to background (likely to MetaMask)
       print('⏸️ App paused - user likely in MetaMask');
     }
   }
@@ -102,16 +96,7 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
     
     print('🔍 Checking connection: connected=$isConnected, address=$address, session=${session?.topic}');
     
-    // Check if connected via service.address
-    if (isConnected && address != null && address.isNotEmpty) {
-      print('✅ Connected via service.address: $address');
-      _pollingTimer?.cancel();
-      _connectionTimeoutTimer?.cancel();
-      Navigator.of(context).pop(address);
-      return;
-    }
-    
-    // Check all sessions in the web3App directly (more reliable)
+    // Check all sessions in the web3App directly FIRST (most reliable)
     final allSessions = widget.service.web3App?.sessions.getAll();
     if (allSessions != null && allSessions.isNotEmpty) {
       print('📦 Found ${allSessions.length} session(s) in web3App');
@@ -139,6 +124,15 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
           }
         }
       }
+    }
+    
+    // Fallback: Check if connected via service.address
+    if (isConnected && address != null && address.isNotEmpty) {
+      print('✅ Connected via service.address: $address');
+      _pollingTimer?.cancel();
+      _connectionTimeoutTimer?.cancel();
+      Navigator.of(context).pop(address);
+      return;
     }
     
     // Try to extract address from service.session as fallback
@@ -172,8 +166,8 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
     _pollingTimer?.cancel();
     _pollAttempts = 0;
     
-    // Poll more frequently - every 500ms
-    _pollingTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+    // Poll every 2 seconds (very stable, won't overload device)
+    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       _pollAttempts++;
       
       if (!mounted) {
@@ -181,20 +175,20 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
         return;
       }
       
-      print('🔍 Poll attempt $_pollAttempts (${_pollAttempts * 0.5}s)');
+      print('🔍 Poll attempt $_pollAttempts');
       
       // Check connection
       _checkConnection();
       
-      // Timeout after max attempts (30 seconds = 60 attempts at 500ms)
-      if (_pollAttempts >= 60) {
-        print('⏱️ Polling timeout after ${_pollAttempts * 0.5} seconds');
+      // Timeout after 60 seconds (30 attempts at 2s)
+      if (_pollAttempts >= 30) {
+        print('⏱️ Polling timeout');
         timer.cancel();
         _connectionTimeoutTimer?.cancel();
         if (mounted) {
           setState(() {
             _isConnecting = false;
-            _errorMessage = 'Connection timeout. MetaMask may not have approved. Please try again or use manual URI method.';
+            _errorMessage = 'Connection timeout. Please try again.';
           });
         }
       }
@@ -208,7 +202,7 @@ class _WalletConnectTestScreenState extends State<WalletConnectTestScreen> with 
         print('  - isConnected: ${widget.service.isConnected}');
         print('  - address: ${widget.service.address}');
         
-        // Use the unified check connection method
+        // Check connection when state changes
         if (_isConnecting) {
           _checkConnection();
         }

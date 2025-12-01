@@ -3,20 +3,27 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
+import '../services/chatgpt_service.dart';
+import '../utils/app_state.dart';
 
 class Message {
   final String id;
   final String text;
   final bool isBot;
   final DateTime timestamp;
+  final String? action;
+  final String? actionData;
 
   Message({
     required this.id,
     required this.text,
     required this.isBot,
     required this.timestamp,
+    this.action,
+    this.actionData,
   });
 }
 
@@ -81,6 +88,8 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
   late AnimationController _fabAnimationController;
   late final Map<String, String> _trainedResponses;
   late final String? _apiEndpoint;
+  final ChatGPTService _chatGPTService = ChatGPTService();
+  final List<Map<String, String>> _conversationHistory = [];
 
   @override
   void initState() {
@@ -107,10 +116,7 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
       if (_isOpen) {
         _fabAnimationController.forward();
         if (_messages.isEmpty) {
-          _addMessage(
-            "Hi there! I'm your friendly assistant. Ask me anything about donations, charities, or how the app works. 🤖✨",
-            isBot: true,
-          );
+          _generateInitialGreeting();
         }
       } else {
         _fabAnimationController.reverse();
@@ -118,7 +124,36 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
     });
   }
 
-  void _addMessage(String text, {required bool isBot}) {
+  Future<void> _generateInitialGreeting() async {
+    setState(() => _isTyping = true);
+    
+    try {
+      final response = await _chatGPTService.getChatResponse(
+        'Generate a brief, friendly greeting message (1-2 sentences) for a charity donation platform chatbot. Make it welcoming and mention that you can help with donations and charities.',
+        conversationHistory: [],
+      );
+      
+      if (mounted) {
+        _addMessage(
+          response['text'] ?? "Hello! I'm here to help you with donations and charity information.",
+          isBot: true,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _addMessage(
+          "Hello! I'm here to help you with donations and charity information.",
+          isBot: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTyping = false);
+      }
+    }
+  }
+
+  void _addMessage(String text, {required bool isBot, String? action, String? actionData}) {
     if (!mounted) return;
     setState(() {
       _messages.add(
@@ -127,6 +162,8 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
           text: text,
           isBot: isBot,
           timestamp: DateTime.now(),
+          action: action,
+          actionData: actionData,
         ),
       );
     });
@@ -207,11 +244,40 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
 
   Future<void> _respond(String userMessage) async {
     await Future.delayed(const Duration(milliseconds: 600));
-    final apiResponse = await _fetchResponseFromApi(userMessage);
-    final reply = apiResponse ?? _findBestResponse(userMessage);
+    
+    // Try ChatGPT first
+    String replyText;
+    String? action;
+    String? actionData;
+    
+    try {
+      final response = await _chatGPTService.getChatResponse(
+        userMessage,
+        conversationHistory: _conversationHistory,
+      );
+      
+      replyText = response['text'] as String;
+      action = response['action'] as String?;
+      actionData = response['actionData'] as String?;
+      
+      // Add to conversation history for context
+      _conversationHistory.add({'role': 'user', 'content': userMessage});
+      _conversationHistory.add({'role': 'assistant', 'content': replyText});
+      
+      // Keep only last 10 messages (5 exchanges) for context
+      if (_conversationHistory.length > 10) {
+        _conversationHistory.removeRange(0, _conversationHistory.length - 10);
+      }
+    } catch (e) {
+      // Fallback to pattern matching if ChatGPT fails
+      print('ChatGPT failed, using fallback: $e');
+      replyText = _findBestResponse(userMessage);
+      action = null;
+      actionData = null;
+    }
 
     if (!mounted) return;
-    _addMessage(reply, isBot: true);
+    _addMessage(replyText, isBot: true, action: action, actionData: actionData);
     if (mounted) {
       setState(() => _isTyping = false);
     }
@@ -464,6 +530,12 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
                     height: 1.5,
                   ),
                 ),
+                // Action button if present
+                if (message.isBot && message.action != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: _buildActionButton(message),
+                  ),
                 const SizedBox(height: 4),
                 Text(
                   '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}',
@@ -478,6 +550,48 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
         ],
       ),
     );
+  }
+
+  Widget _buildActionButton(Message message) {
+    String buttonText = 'View';
+    IconData icon = Icons.arrow_forward;
+    
+    if (message.action == 'VIEW_CATEGORY') {
+      buttonText = 'View ${message.actionData} 🎯';
+      icon = Icons.category;
+    } else if (message.action == 'VIEW_ALL') {
+      buttonText = 'View All Campaigns 📋';
+      icon = Icons.grid_view;
+    }
+    
+    return ElevatedButton.icon(
+      onPressed: () => _handleAction(message.action!, message.actionData),
+      icon: Icon(icon, size: 16),
+      label: Text(buttonText),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF2563EB),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+  
+  void _handleAction(String action, String? actionData) {
+    // Import app_state to navigate
+    final appState = context.read<AppState>();
+    
+    if (action == 'VIEW_CATEGORY') {
+      appState.selectCategory(actionData);
+      appState.navigateTo(Screen.dashboard);
+      _toggleChat(); // Close chatbot
+    } else if (action == 'VIEW_ALL') {
+      appState.selectCategory(null);
+      appState.navigateTo(Screen.dashboard);
+      _toggleChat(); // Close chatbot
+    }
   }
 
   Widget _buildTypingIndicator(double maxBubbleWidth) {

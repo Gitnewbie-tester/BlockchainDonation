@@ -96,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // Login Form Card
                     Card(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withOpacity(0.9),
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Form(
@@ -112,9 +112,21 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Email Field
                               TextFormField(
                                 controller: _emailController,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   labelText: 'Email',
                                   hintText: 'Enter your email',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.grey),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.grey),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: AppTheme.blue600, width: 2),
+                                  ),
                                 ),
                                 keyboardType: TextInputType.emailAddress,
                                 validator: (value) {
@@ -129,9 +141,21 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Password Field
                               TextFormField(
                                 controller: _passwordController,
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   labelText: 'Password',
                                   hintText: 'Enter your password',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.grey),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.grey),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: AppTheme.blue600, width: 2),
+                                  ),
                                 ),
                                 obscureText: true,
                                 validator: (value) {
@@ -146,13 +170,22 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Login Button
                               SizedBox(
                                 width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: _isLoading ? null : _handleLogin,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.blue600,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [AppTheme.blue600, AppTheme.green600],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: Text(
-                                        _isLoading ? 'Signing in...' : 'Login',
+                                  child: ElevatedButton(
+                                    onPressed: _isLoading ? null : _handleLogin,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                    ),
+                                    child: Text(
+                                          _isLoading ? 'Signing in...' : 'Login',
+                                    ),
                                   ),
                                 ),
                               ),
@@ -161,6 +194,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Forgot Password
                               TextButton(
                                 onPressed: () {},
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppTheme.blue600,
+                                ),
                                 child: const Text('Forgot Password?'),
                               ),
                             ],
@@ -201,7 +237,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         TextButton(
                           onPressed: () => appState.navigateTo(Screen.register),
-                          child: const Text('Sign Up'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.blue600,
+                          ),
+                          child: const Text(
+                            'Sign Up',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ],
                     ),

@@ -4,8 +4,9 @@ import 'package:http/http.dart' as http;
 
 class BlockchainService {
   // Use a public RPC endpoint (you can change this to your preferred network)
-  static const String _rpcUrl = 'https://eth-sepolia.g.alchemy.com/v2/demo'; // Sepolia testnet
-  // For mainnet: 'https://eth-mainnet.g.alchemy.com/v2/demo'
+  // Using Ankr's public endpoint which is more reliable than Alchemy demo
+  static const String _rpcUrl = 'https://rpc.ankr.com/eth_sepolia'; // Sepolia testnet
+  // For mainnet: 'https://rpc.ankr.com/eth'
   
   late final Web3Client _client;
   
@@ -159,12 +160,21 @@ class BlockchainService {
   /// Returns a map with transaction information or null if not found
   Future<Map<String, dynamic>?> getTransactionDetails(String txHash) async {
     try {
+      // Validate hash format
+      if (txHash.isEmpty || !txHash.startsWith('0x') || txHash.length != 66) {
+        print('⚠️ Invalid transaction hash format: $txHash');
+        return null;
+      }
+      
+      print('🔍 Fetching receipt for: $txHash');
       final receipt = await _client.getTransactionReceipt(txHash);
       
       if (receipt != null) {
         // Format gas used with commas
         final gasUsedStr = receipt.gasUsed?.toInt().toString() ?? '0';
         final gasUsedFormatted = _formatWithCommas(gasUsedStr);
+        
+        print('✅ Receipt found! Block: ${receipt.blockNumber.blockNum}, Gas: $gasUsedFormatted');
         
         return {
           'gasUsed': gasUsedFormatted,
@@ -174,9 +184,10 @@ class BlockchainService {
       }
       
       // Transaction not yet mined
+      print('⏳ Transaction not yet mined: $txHash');
       return null;
     } catch (e) {
-      print('Error fetching transaction details: $e');
+      print('❌ Error fetching transaction details: $e');
       return null;
     }
   }

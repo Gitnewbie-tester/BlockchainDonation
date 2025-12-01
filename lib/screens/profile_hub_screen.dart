@@ -13,111 +13,203 @@ class ProfileHubScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => state.navigateTo(Screen.dashboard),
             ),
-            title: const Text('Profile'),
+            title: const Text('Profile', style: TextStyle(color: Colors.white)),
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppTheme.blue600, AppTheme.green600],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+              ),
+            ),
           ),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                // Profile Header
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        CircleAvatar(
-                          radius: 50,
-                          backgroundColor: AppTheme.blue600,
-                          child: Text(
-                            _initialFromName(state.user.fullName),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 36,
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppTheme.blue600.withOpacity(0.1),
+                  Colors.white,
+                ],
+              ),
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  // Profile Header
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          CircleAvatar(
+                            radius: 50,
+                            backgroundColor: AppTheme.blue600,
+                            child: Text(
+                              _initialFromName(state.user.fullName),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 36,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            state.user.fullName,
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              color: AppTheme.slate800,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            state.user.email,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.slate600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Wallet Section
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppTheme.blue50,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Icon(Icons.account_balance_wallet, color: AppTheme.blue600),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Wallet Connection',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.blue600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          state.user.fullName,
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          state.user.email,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Member since ${state.user.joinDate}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        ListTile(
+                          title: Text(
+                            state.walletAddress.isEmpty
+                                ? 'Not connected'
+                                : '${state.walletAddress.substring(0, 6)}...${state.walletAddress.substring(state.walletAddress.length - 4)}',
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          subtitle: state.walletAddress.isEmpty
+                              ? null
+                              : Text(
+                                  'Balance: ${state.walletBalance} ETH',
+                                  style: TextStyle(color: AppTheme.green600, fontWeight: FontWeight.bold),
+                                ),
+                          trailing: state.walletAddress.isEmpty
+                              ? null
+                              : ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await state.disconnectWallet();
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Wallet disconnected'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.logout, size: 18),
+                                  label: const Text('Disconnect'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.red600,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                
-                // Wallet Section
-                Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.account_balance_wallet),
-                        title: const Text('Wallet'),
-                        subtitle: Text(
-                          state.walletAddress.isEmpty
-                              ? 'Not connected'
-                              : '${state.walletAddress.substring(0, 6)}...${state.walletAddress.substring(state.walletAddress.length - 4)}',
-                        ),
-                        trailing: state.walletAddress.isEmpty
-                            ? null
-                            : TextButton(
-                                onPressed: () => state.disconnectWallet(),
-                                child: const Text('Disconnect'),
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Account Settings
-                Card(
-                  child: Column(
-                    children: [
-                      _ProfileMenuItem(
-                        icon: Icons.person,
-                        title: 'Update Information',
-                        onTap: () => state.navigateTo(Screen.updateInfo),
-                      ),
-                      const Divider(height: 1),
-                      _ProfileMenuItem(
-                        icon: Icons.history,
-                        title: 'Donation History',
-                        onTap: () => state.navigateTo(Screen.donationHistory),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Logout Button
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => state.logout(),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.red600,
-                      side: const BorderSide(color: AppTheme.red600),
+                  const SizedBox(height: 16),
+                  
+                  // Account Settings
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text('Logout'),
+                    child: Column(
+                      children: [
+                        _ProfileMenuItem(
+                          icon: Icons.person,
+                          title: 'Update Information',
+                          onTap: () => state.navigateTo(Screen.updateInfo),
+                        ),
+                        const Divider(height: 1),
+                        _ProfileMenuItem(
+                          icon: Icons.history,
+                          title: 'Donation History',
+                          onTap: () => state.navigateTo(Screen.donationHistory),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  
+                  // Logout Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [AppTheme.blue600, AppTheme.green600],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: () => state.logout(),
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Logout'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

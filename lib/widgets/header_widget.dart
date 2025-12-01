@@ -32,9 +32,23 @@ class HeaderWidget extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Wallet Button
+            // User Profile Button (at far left) - direct navigation
+            InkWell(
+              onTap: onProfileClick,
+              borderRadius: BorderRadius.circular(20),
+              child: CircleAvatar(
+                radius: 20,
+                backgroundColor: AppTheme.blue600,
+                child: Text(
+                  _initialFromName(userName),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+            
+            // Wallet Button (at far right)
             if (walletAddress.isNotEmpty)
               _WalletButton(
                 address: walletAddress,
@@ -52,42 +66,6 @@ class HeaderWidget extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
               ),
-            const SizedBox(width: 12),
-            
-            // User Profile Menu
-            PopupMenuButton(
-              offset: const Offset(0, 40),
-              child: CircleAvatar(
-                radius: 20,
-                backgroundColor: AppTheme.blue600,
-                child: Text(
-                  _initialFromName(userName),
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  onTap: onProfileClick,
-                  child: const Row(
-                    children: [
-                      Icon(Icons.person, size: 16),
-                      SizedBox(width: 8),
-                      Text('Profile'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  onTap: onLogout,
-                  child: const Row(
-                    children: [
-                      Icon(Icons.logout, size: 16, color: AppTheme.red600),
-                      SizedBox(width: 8),
-                      Text('Logout', style: TextStyle(color: AppTheme.red600)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),

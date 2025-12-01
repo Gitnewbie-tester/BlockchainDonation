@@ -164,21 +164,61 @@ class _MobileWalletConnector implements WalletConnector {
       };
 
   @override
+  Future<void> disconnect() async {
+    print('🔌 Disconnecting WalletConnect sessions...');
+    
+    final service = _modalService;
+    if (service == null) {
+      print('   No service initialized');
+      return;
+    }
+
+    // Disconnect all sessions
+    final sessions = service.web3App?.sessions.getAll();
+    if (sessions != null && sessions.isNotEmpty) {
+      print('   Found ${sessions.length} session(s) to disconnect');
+      for (final session in sessions) {
+        try {
+          await service.web3App?.disconnectSession(
+            topic: session.topic,
+            reason: Errors.getSdkError(Errors.USER_DISCONNECTED),
+          );
+          print('   ✅ Disconnected session: ${session.topic}');
+        } catch (e) {
+          print('   ⚠️ Error disconnecting session ${session.topic}: $e');
+        }
+      }
+    } else {
+      print('   No active sessions to disconnect');
+    }
+    
+    print('✅ WalletConnect disconnect complete');
+  }
+
+  @override
   Future<String> sendTransaction({
     required String from,
     required String to,
     required String value,
+    String? data,  // Optional data for contract calls
   }) async {
     final service = _modalService;
-    if (service == null || !service.isConnected) {
+    if (service == null) {
       throw WalletException('Wallet not connected');
     }
 
     try {
-      final session = service.session;
-      if (session == null) {
+      // Get the most recent session directly from web3App
+      // This ensures we use the correct session after reconnecting
+      final sessions = service.web3App?.sessions.getAll();
+      if (sessions == null || sessions.isEmpty) {
         throw WalletException('No active session');
       }
+      
+      // Use the first (most recent) session
+      final session = sessions.first;
+      print('📱 Using session: ${session.topic}');
+      print('   Connected to: ${session.peer.metadata.name}');
 
       print('💸 Requesting transaction approval from wallet...');
       print('   From: $from');
@@ -190,7 +230,8 @@ class _MobileWalletConnector implements WalletConnector {
         'from': from,
         'to': to,
         'value': value,
-        'gas': '0x5208',
+        'gas': data != null ? '0xC350' : '0x5208',  // 50k gas for contract, 21k for transfer
+        if (data != null && data.isNotEmpty) 'data': data,  // Include data for contract calls
       };
 
       // Send the transaction request
@@ -237,6 +278,14 @@ class _MobileWalletConnector implements WalletConnector {
             throw TimeoutException('No response from wallet');
           },
         );
+      } on JsonRpcError catch (e) {
+        // Handle user rejection BEFORE timeout
+        print('❌ JSON-RPC Error during transaction: ${e.code} - ${e.message}');
+        if (e.code == 4001) {
+          print('🚫 User rejected the transaction');
+          throw WalletException('TRANSACTION_REJECTED:Transaction was cancelled');
+        }
+        throw WalletException('Transaction failed: ${e.message}');
       } on TimeoutException {
         print('⏱️ Request timed out after 30 seconds');
         print('! WalletConnect relay timeout');

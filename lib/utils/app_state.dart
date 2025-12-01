@@ -8,6 +8,8 @@ import '../models/dashboard_stats.dart';
 import '../services/api_service.dart';
 import '../services/blockchain_service.dart';
 import '../services/wallet_service.dart';
+import '../services/ipfs_service.dart';
+import './contract_encoder.dart';
 
 enum Screen {
   login,
@@ -30,11 +32,17 @@ class AppState extends ChangeNotifier {
   final ApiService _apiService;
   final BlockchainService _blockchainService = BlockchainService();
   final WalletConnector _walletService = walletConnector;
+  final IpfsService _ipfsService = IpfsService();
+  
+  // Smart contract deployed on Sepolia testnet
+  // View on Etherscan: https://sepolia.etherscan.io/address/0xd9145CCE52D386f254917e481eB44e9943F39138
+  static const String CONTRACT_ADDRESS = '0xd9145CCE52D386f254917e481eB44e9943F39138';
   Screen _currentScreen = Screen.login;
   bool _isLoggedIn = false;
   String _walletAddress = '';
   String _walletBalance = '0.0000'; // Actual ETH balance from blockchain
   String? _selectedCategory;
+  String _searchQuery = '';
   Charity? _selectedCharity;
   Donation? _lastDonation;
   DashboardStats _dashboardStats = const DashboardStats();
@@ -55,6 +63,7 @@ class AppState extends ChangeNotifier {
   String get walletAddress => _walletAddress;
   String get walletBalance => _walletBalance; // Actual blockchain balance
   String? get selectedCategory => _selectedCategory;
+  String get searchQuery => _searchQuery;
   Charity? get selectedCharity => _selectedCharity;
   Donation? get lastDonation => _lastDonation;
   User get user => _user;
@@ -74,9 +83,22 @@ class AppState extends ChangeNotifier {
   }
 
   List<Charity> get filteredCharities {
-    final Iterable<Charity> iterable = _selectedCategory == null
-        ? _charities
-        : _charities.where((c) => c.category == _selectedCategory);
+    Iterable<Charity> iterable = _charities;
+    
+    // Filter by category
+    if (_selectedCategory != null) {
+      iterable = iterable.where((c) => c.category == _selectedCategory);
+    }
+    
+    // Filter by search query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      iterable = iterable.where((c) =>
+          c.title.toLowerCase().contains(query) ||
+          c.description.toLowerCase().contains(query) ||
+          c.category.toLowerCase().contains(query));
+    }
+    
     return List.unmodifiable(iterable);
   }
 
@@ -172,14 +194,28 @@ class AppState extends ChangeNotifier {
       final balance = await _blockchainService.getBalance(_walletAddress);
       _walletBalance = balance;
       notifyListeners();
+      print('✅ Balance fetched: $balance ETH');
     } catch (e) {
       if (kDebugMode) {
-        print('Error fetching wallet balance: $e');
+        print('⚠️ Error fetching wallet balance: $e');
       }
+      // Don't retry, just set to 0 to avoid blocking
+      _walletBalance = '0.0000';
+      notifyListeners();
     }
   }
 
-  void disconnectWallet() {
+  Future<void> disconnectWallet() async {
+    print('🔌 Disconnecting wallet...');
+    
+    // Disconnect from WalletConnect if connected
+    try {
+      await _walletService.disconnect();
+      print('✅ WalletConnect session disconnected');
+    } catch (e) {
+      print('⚠️ Error disconnecting WalletConnect: $e');
+    }
+    
     _walletAddress = '';
     _walletBalance = '0.0000';
     notifyListeners();
@@ -196,6 +232,12 @@ class AppState extends ChangeNotifier {
     }
     if (_selectedCategory == category) return;
     _selectedCategory = category;
+    notifyListeners();
+  }
+
+  void updateSearchQuery(String query) {
+    if (_searchQuery == query) return;
+    _searchQuery = query;
     notifyListeners();
   }
 
@@ -235,6 +277,29 @@ class AppState extends ChangeNotifier {
       throw Exception('Connect your wallet before donating.');
     }
     
+    // Check wallet balance before allowing donation
+    final currentBalance = double.tryParse(_walletBalance) ?? 0;
+    if (currentBalance < ethAmount) {
+      throw Exception(
+        'Insufficient balance\n\n'
+        'Your balance: $currentBalance ETH\n'
+        'Required: $ethAmount ETH\n\n'
+        'Please add more ETH to your wallet or reduce the donation amount.'
+      );
+    }
+    
+    // Add small buffer for gas fees (estimate ~0.002 ETH)
+    const double estimatedGas = 0.002;
+    if (currentBalance < (ethAmount + estimatedGas)) {
+      throw Exception(
+        'Insufficient balance for gas fees\n\n'
+        'Your balance: $currentBalance ETH\n'
+        'Donation: $ethAmount ETH\n'
+        'Estimated gas: ~$estimatedGas ETH\n\n'
+        'You need at least ${(ethAmount + estimatedGas).toStringAsFixed(4)} ETH total.'
+      );
+    }
+    
     final campaignId = charity.id.trim();
     if (campaignId.isEmpty) {
       throw Exception('Selected campaign has no ID');
@@ -254,28 +319,83 @@ class AppState extends ChangeNotifier {
     final weiAmount = (ethAmount * weiPerEth).round();
     final weiHex = '0x${weiAmount.toRadixString(16)}';
 
-    String txHash;
+    // Initialize variables that will be used across try-catch blocks
+    String txHash = '';
+    String cid = 'receipt-pending';
+    String gatewayUrl = '';
+    int sizeBytes = 0;
+    
     try {
-      // Send real blockchain transaction through WalletConnect
+      // STEP 1: Upload receipt to IPFS
       if (kDebugMode) {
+        print('📤 Step 1: Uploading receipt to IPFS...');
+      }
+      
+      final ipfsResult = await _ipfsService.uploadReceipt(
+        txHash: 'pending',  // Will be updated later
+        donorAddress: _walletAddress,
+        campaignId: campaignId,
+        campaignName: charity.title,
+        amountEth: ethAmount,
+        beneficiaryAddress: beneficiaryAddress,
+      );
+      
+      cid = ipfsResult.cid;
+      gatewayUrl = ipfsResult.gatewayUrl;
+      sizeBytes = ipfsResult.sizeBytes;
+      
+      if (kDebugMode) {
+        print('✅ Receipt uploaded! CID: $cid');
+      }
+      
+      // STEP 2: Check if contract is deployed
+      if (CONTRACT_ADDRESS == 'DEPLOY_CONTRACT_FIRST') {
+        throw Exception(
+          'Smart contract not deployed yet!\n\n'
+          '1. Open Remix: https://remix.ethereum.org/\n'
+          '2. Create DonationRegistry.sol\n'
+          '3. Deploy to Sepolia\n'
+          '4. Update CONTRACT_ADDRESS in app_state.dart'
+        );
+      }
+      
+      // STEP 3: Encode contract function call
+      if (kDebugMode) {
+        print('🔧 Step 2: Encoding contract call...');
+      }
+      
+      final encodedData = ContractEncoder.encodeDonateFunction(
+        campaignId: campaignId,
+        beneficiaryAddress: beneficiaryAddress,
+        receiptCid: cid,
+        contractAddress: CONTRACT_ADDRESS,
+      );
+      
+      // STEP 4: Send transaction to smart contract
+      if (kDebugMode) {
+        print('📝 Step 3: Calling smart contract...');
         print('Sending transaction: $ethAmount ETH');
         print('From: $_walletAddress');
-        print('To: $beneficiaryAddress');
+        print('To: $CONTRACT_ADDRESS (contract)');
+        print('Beneficiary: $beneficiaryAddress');
         print('Value: $weiHex ($weiAmount wei)');
+        print('Data: $encodedData');
       }
       
       txHash = await _walletService.sendTransaction(
         from: _walletAddress,
-        to: beneficiaryAddress,
+        to: CONTRACT_ADDRESS,  // Send to contract, not beneficiary!
         value: weiHex,
+        data: encodedData,  // Include function call data
       );
       
       if (kDebugMode) {
-        print('Transaction sent! Hash: $txHash');
+        print('✅ Transaction sent! Hash: $txHash');
       }
     } catch (e) {
-      // Check if this is the relay timeout (but transaction succeeded)
       final errorMsg = e.toString();
+      
+      // Check if this is the relay timeout (but transaction succeeded) - CHECK THIS FIRST!
       if (errorMsg.contains('SUCCESS_NO_HASH:')) {
         if (kDebugMode) {
           print('🔍 Relay timeout - transaction succeeded but relay did not return hash');
@@ -321,15 +441,24 @@ class AppState extends ChangeNotifier {
           txHash = fetchedHash;
         }
       } else {
+        // Check if user cancelled the transaction
+        if (errorMsg.contains('TRANSACTION_REJECTED') || 
+            errorMsg.contains('Transaction was cancelled') ||
+            errorMsg.contains('Transaction rejected by user') ||
+            errorMsg.contains('User rejected')) {
+          if (kDebugMode) {
+            print('🚫 User cancelled the transaction');
+          }
+          throw Exception('Transaction was cancelled by user');
+        }
+        
+        // Other errors
         throw Exception('Transaction failed: $e');
       }
     }
 
-    // Generate receipt metadata
-    final cid = 'receipt-${DateTime.now().millisecondsSinceEpoch}';
-    final gatewayUrl = 'https://ipfs.io/ipfs/$cid';
-    const int sizeBytes = 512;
-
+    // cid, gatewayUrl, and sizeBytes are already set from IPFS upload above
+    
     // Record donation in database only if we have a real transaction hash
     if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK') {
       try {
@@ -375,9 +504,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     // Fetch real transaction details in the background
-    // Skip if we have the special timeout hash (no real hash available)
-    if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK') {
+    // Skip if we have the special timeout hash or empty hash
+    if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK' && 
+        txHash.isNotEmpty && 
+        txHash.startsWith('0x')) {
+      if (kDebugMode) {
+        print('🔍 Starting background fetch for transaction details: $txHash');
+      }
       _fetchTransactionDetails(txHash, amount, charity.title, message);
+    } else {
+      if (kDebugMode) {
+        print('⚠️ Skipping transaction details fetch - invalid hash: $txHash');
+      }
     }
   }
 
@@ -422,15 +560,37 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      // Timeout - keep as pending
+      // Timeout after 2 minutes - update to show timeout message
       if (kDebugMode) {
-        print('Transaction still pending after 2 minutes');
+        print('Transaction fetch timed out after 2 minutes');
+        print('Updating receipt to show unavailable status');
       }
+      
+      _lastDonation = Donation(
+        amount: amount,
+        charity: charityTitle,
+        message: message.isEmpty ? null : message,
+        transactionHash: txHash,
+        timestamp: DateTime.now().toString(),
+        gasUsed: 'Unavailable',
+        blockNumber: 'Unavailable',
+      );
+      notifyListeners();
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching transaction details: $e');
       }
-      // Keep the pending values if fetch fails
+      // Update with unavailable status on error
+      _lastDonation = Donation(
+        amount: amount,
+        charity: charityTitle,
+        message: message.isEmpty ? null : message,
+        transactionHash: txHash,
+        timestamp: DateTime.now().toString(),
+        gasUsed: 'Unavailable',
+        blockNumber: 'Unavailable',
+      );
+      notifyListeners();
     }
   }
 
@@ -511,9 +671,23 @@ class AppState extends ChangeNotifier {
     _fetchTransactionDetails(txHash, amount, charity.title, message);
   }
 
-  void updateUser(User updatedUser) {
+  Future<void> updateUser(User updatedUser) async {
     _user = updatedUser;
     notifyListeners();
+    
+    // Update user in database
+    try {
+      await _apiService.updateUserInfo(
+        address: _walletAddress,
+        name: updatedUser.fullName,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+      );
+      print('✅ User information updated in database');
+    } catch (e) {
+      print('⚠️ Failed to update user in database: $e');
+      // Still keep local update even if API fails
+    }
   }
 
   void backToDashboard() {

@@ -116,6 +116,20 @@ class ApiService {
       'gateway_url': gatewayUrl,
     });
   }
+
+  Future<void> updateUserInfo({
+    required String address,
+    required String name,
+    required String email,
+    String? phone,
+  }) async {
+    await _postJson('/api/user/update', {
+      'address': address,
+      'name': name,
+      'email': email,
+      'phone': phone,
+    });
+  }
 }
 
 class ApiException implements Exception {

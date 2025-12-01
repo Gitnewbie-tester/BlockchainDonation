@@ -35,10 +35,18 @@ class _WebWalletConnector implements WalletConnector {
   }
 
   @override
+  Future<void> disconnect() async {
+    // For MetaMask on web, there's no formal disconnect - the user manages connections
+    // through the MetaMask extension itself. We just clear local state.
+    print('🔌 Web wallet disconnect (no-op for MetaMask)');
+  }
+
+  @override
   Future<String> sendTransaction({
     required String from,
     required String to,
     required String value,
+    String? data,
   }) async {
     if (!isMetaMaskAvailable) {
       throw WalletException('MetaMask is not installed');

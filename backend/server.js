@@ -332,6 +332,57 @@ const ensureSchema = async () => {
   `);
 
   console.log('Database schema is up to date.');
+  
+  // Update existing campaigns with proper categories
+  const { rows } = await pool.query('SELECT COUNT(*) as count FROM campaigns');
+  const campaignCount = parseInt(rows[0].count);
+  
+  if (campaignCount === 0) {
+    console.log('Seeding sample campaigns...');
+  } else {
+    console.log(`Found ${campaignCount} existing campaigns. Updating categories...`);
+    // Update existing campaigns to have proper categories (PostgreSQL doesn't support LIMIT in UPDATE)
+    await pool.query(`
+      UPDATE campaigns SET category = 'Education' 
+      WHERE id IN (SELECT id FROM campaigns WHERE category IS NULL OR category = 'General' LIMIT 2)
+    `);
+    await pool.query(`
+      UPDATE campaigns SET category = 'Healthcare' 
+      WHERE id IN (SELECT id FROM campaigns WHERE category = 'General' LIMIT 2)
+    `);
+  }
+  
+  // Always add diverse campaigns
+  const sampleCampaigns = [
+    { name: 'Hope Children\'s Home', description: 'Supporting orphaned children with education, shelter, and care', goal: 5.5, category: 'Children & Orphanages', verified: true },
+    { name: 'Clean Water Initiative', description: 'Providing clean water access to rural communities', goal: 10.0, category: 'Community Development', verified: true },
+    { name: 'Wildlife Conservation Fund', description: 'Protecting endangered species and their habitats', goal: 15.0, category: 'Environment', verified: true },
+    { name: 'Medical Aid for All', description: 'Free healthcare services for underprivileged communities', goal: 8.0, category: 'Healthcare', verified: true },
+    { name: 'School Building Project', description: 'Constructing schools in remote areas', goal: 20.0, category: 'Education', verified: true },
+    { name: 'Flood Relief Fund', description: 'Emergency aid for flood victims', goal: 12.0, category: 'Disaster Relief', verified: true },
+    { name: 'Animal Rescue Center', description: 'Rescuing and rehabilitating abandoned animals', goal: 6.0, category: 'Animal Welfare', verified: true },
+    { name: 'Food Bank Support', description: 'Fighting hunger in urban areas', goal: 7.0, category: 'Poverty & Hunger', verified: true },
+    { name: 'University Scholarship Fund', description: 'Helping underprivileged students attend university', goal: 25.0, category: 'Education', verified: true },
+    { name: 'Mobile Health Clinic', description: 'Bringing medical care to remote villages', goal: 18.0, category: 'Healthcare', verified: true },
+    { name: 'Earthquake Response Team', description: 'Rapid response for earthquake victims', goal: 30.0, category: 'Disaster Relief', verified: true },
+    { name: 'Street Children Support', description: 'Providing shelter and education for street children', goal: 9.0, category: 'Children & Orphanages', verified: true },
+    { name: 'Reforestation Project', description: 'Planting trees to combat climate change', goal: 14.0, category: 'Environment', verified: true },
+    { name: 'Homeless Shelter', description: 'Safe shelter and meals for the homeless', goal: 11.0, category: 'Poverty & Hunger', verified: true },
+    { name: 'Dog Rescue Sanctuary', description: 'Rescuing and rehoming abandoned dogs', goal: 7.5, category: 'Animal Welfare', verified: true },
+    { name: 'Rural Infrastructure', description: 'Building roads and bridges in rural areas', goal: 22.0, category: 'Community Development', verified: true },
+  ];
+  
+  for (const camp of sampleCampaigns) {
+    // Check if campaign already exists
+    const existing = await pool.query('SELECT id FROM campaigns WHERE name = $1', [camp.name]);
+    if (existing.rows.length === 0) {
+      await pool.query(
+        'INSERT INTO campaigns (name, description, goal_eth, category, verified, owner_address, beneficiary_address) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [camp.name, camp.description, camp.goal, camp.category, camp.verified, '0x0000000000000000000000000000000000000000', '0x0000000000000000000000000000000000000000']
+      );
+    }
+  }
+  console.log('Campaign categories updated and sample campaigns added.');
 };
 
 app.get('/', (_req, res) => {
@@ -397,6 +448,34 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat assistant error:', error.message);
     return res.status(500).json({ error: 'Assistant is unavailable right now.' });
+  }
+});
+
+// Update user information
+app.post('/api/user/update', async (req, res) => {
+  const { address, name, email, phone } = req.body;
+  
+  if (!address || !name || !email) {
+    return res.status(400).json({ error: 'Address, name, and email are required.' });
+  }
+
+  try {
+    const query = `
+      UPDATE users 
+      SET name = $1, email = $2, phone = $3
+      WHERE address = $4
+      RETURNING *`;
+    
+    const { rows } = await pool.query(query, [name, email, phone || null, address]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    res.json({ success: true, user: rows[0] });
+  } catch (err) {
+    console.error('Update user error:', err.message);
+    res.status(500).json({ error: 'Unable to update user information.' });
   }
 });
 
@@ -571,6 +650,47 @@ app.post('/api/donate', async (req, res) => {
     res.status(500).json({ error: "Failed to record donation" });
   } finally {
     client.release();
+  }
+});
+
+// E. Get Donation History for a Wallet Address
+// Returns all donations made by a specific wallet address with campaign and receipt details
+app.get('/api/donations/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    console.log(`📜 Fetching donation history for: ${address}`);
+
+    // Query to join donations with campaigns and receipts
+    const query = `
+      SELECT 
+        d.tx_hash,
+        d.amount_wei,
+        d.created_at,
+        d.status,
+        c.name as campaign_name,
+        c.beneficiary_address,
+        r.cid,
+        r.gateway_url,
+        r.size_bytes
+      FROM donations d
+      JOIN campaigns c ON d.campaign_id = c.id
+      JOIN receipts r ON d.cid = r.cid
+      WHERE LOWER(d.donor_address) = LOWER($1)
+      ORDER BY d.created_at DESC
+    `;
+
+    const result = await pool.query(query, [address]);
+    
+    console.log(`✅ Found ${result.rows.length} donations for ${address}`);
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('❌ Error fetching donation history:', err.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch donation history',
+      details: err.message 
+    });
   }
 });
 

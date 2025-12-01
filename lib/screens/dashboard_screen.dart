@@ -71,16 +71,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       state.dashboardStats.totalDonations,
                                 ),
                                 const SizedBox(height: 24),
+                                Text(
+                                  'Campaigns',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 16),
                                 CategoryFilterWidget(
                                   categories: state.categories,
                                   selectedCategory: state.selectedCategory,
                                   onCategorySelect: (category) =>
                                       state.selectCategory(category),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Campaigns',
-                                  style: Theme.of(context).textTheme.titleLarge,
+                                  searchQuery: state.searchQuery,
+                                  onSearchChanged: (query) =>
+                                      state.updateSearchQuery(query),
                                 ),
                                 const SizedBox(height: 16),
                                 if (state.isCampaignsLoading &&
