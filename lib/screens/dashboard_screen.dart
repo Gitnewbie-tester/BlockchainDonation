@@ -29,6 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     walletAddress: state.walletAddress,
                     walletBalance: state.walletBalance,
                     userName: state.user.fullName,
+                    tokenBalance: state.dashboardStats.tokenBalance,
                     onWalletClick: () => _handleWalletClick(state),
                     onProfileClick: () => state.navigateTo(Screen.profile),
                     onLogout: () => state.logout(),

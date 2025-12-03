@@ -44,23 +44,10 @@ class _UpdateInformationScreenState extends State<UpdateInformationScreen> {
       age: int.tryParse(_ageController.text),
     );
     
-    // Show loading
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Updating information...')),
-      );
-    }
-    
     await state.updateUser(updatedUser);
     
     if (mounted) {
       state.navigateTo(Screen.profile);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Information updated successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
     }
   }
 
@@ -100,12 +87,18 @@ class _UpdateInformationScreenState extends State<UpdateInformationScreen> {
               TextFormField(
                 controller: _emailController,
                 decoration: const InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Email (Gmail only)',
+                  helperText: 'Only Gmail addresses are supported',
                 ),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter your email';
+                  }
+                  // Gmail validation regex
+                  final gmailRegex = RegExp(r'^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]{0,62}[a-zA-Z0-9])?@gmail\.com$', caseSensitive: false);
+                  if (!gmailRegex.hasMatch(value.trim())) {
+                    return 'Email must be a valid @gmail.com address';
                   }
                   return null;
                 },

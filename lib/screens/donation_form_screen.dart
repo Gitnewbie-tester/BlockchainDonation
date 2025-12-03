@@ -153,6 +153,7 @@ class _DonationFormScreenState extends State<DonationFormScreen> {
                 walletAddress: state.walletAddress,
                 walletBalance: state.walletBalance,
                 userName: state.user.fullName,
+                tokenBalance: state.dashboardStats.tokenBalance,
                 onWalletClick: () => _handleWalletTap(context, state),
                 onProfileClick: () => state.navigateTo(Screen.profile),
                 onLogout: () => state.logout(),

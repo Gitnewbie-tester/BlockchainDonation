@@ -2,6 +2,10 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcryptjs');
+const { updateDonationStats } = require('./services/impactScoreService');
+
+const SALT_ROUNDS = 10;
 
 const app = express();
 
@@ -24,6 +28,9 @@ const PORT = process.env.PORT || 3000;
 const DEFAULT_CAMPAIGN_IMAGE =
   'https://images.unsplash.com/photo-1455849318743-b2233052fcff?auto=format&fit=crop&w=1200&q=80';
 const IPFS_GATEWAY = process.env.IPFS_GATEWAY || 'https://ipfs.io/ipfs/';
+
+// Primary beneficiary wallet address for all donations
+const BENEFICIARY_WALLET_ADDRESS = '0x29B8a765082B5A523a45643A874e824b5752e146';
 
 const CAMPAIGN_FIELDS = `
   c.id,
@@ -78,9 +85,12 @@ const isStrongPassword = (password) =>
   /[^A-Za-z0-9]/.test(password);
 
 const normalizeAddress = (address, email) => {
-  if (address && address.trim().length > 0) {
+  // Check if address is valid and not a placeholder
+  const RECIPIENT_PLACEHOLDER = '0x4A9D9e820651c21947906F1BAA7f7f210e682b12';
+  if (address && address.trim().length > 0 && address.trim() !== RECIPIENT_PLACEHOLDER) {
     return address.trim();
   }
+  // For users without wallet, use email as unique identifier
   return email.toLowerCase();
 };
 
@@ -159,11 +169,22 @@ const buildDashboardStats = async (address) => {
 
   const impactScore = Number(charities_supported) * 120 + Number(total_donations) * 15;
 
+  // Get token balance (reward_balance) from users table
+  // Query by address OR email since buildDashboardStats can receive either
+  const userResult = await pool.query(
+    'SELECT reward_balance FROM users WHERE LOWER(address) = LOWER($1) OR LOWER(email) = LOWER($1)',
+    [address]
+  );
+  const tokenBalance = userResult.rows.length > 0 
+    ? parseFloat(userResult.rows[0].reward_balance || 0)
+    : 0;
+
   return {
     totalDonatedEth: weiToEthString(total_wei),
     charitiesSupported: Number(charities_supported),
     impactScore,
     totalDonations: Number(total_donations),
+    tokenBalance: tokenBalance.toFixed(2),
   };
 };
 
@@ -274,8 +295,15 @@ const ensureSchema = async () => {
       name TEXT,
       email TEXT UNIQUE,
       phone TEXT,
+      password_hash TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+  `);
+  
+  // Add password_hash column if it doesn't exist (for existing databases)
+  await pool.query(`
+    ALTER TABLE users 
+    ADD COLUMN IF NOT EXISTS password_hash TEXT;
   `);
 
   await pool.query(`
@@ -378,7 +406,7 @@ const ensureSchema = async () => {
     if (existing.rows.length === 0) {
       await pool.query(
         'INSERT INTO campaigns (name, description, goal_eth, category, verified, owner_address, beneficiary_address) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [camp.name, camp.description, camp.goal, camp.category, camp.verified, '0x0000000000000000000000000000000000000000', '0x0000000000000000000000000000000000000000']
+        [camp.name, camp.description, camp.goal, camp.category, camp.verified, BENEFICIARY_WALLET_ADDRESS, BENEFICIARY_WALLET_ADDRESS]
       );
     }
   }
@@ -480,7 +508,7 @@ app.post('/api/user/update', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { address, name, email, phone, password } = req.body;
+  const { address, name, email, phone, password, referralCode } = req.body;
   if (!email || !name || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
@@ -499,19 +527,54 @@ app.post('/api/auth/register', async (req, res) => {
     const normalizedEmail = email.toLowerCase();
     const normalizedAddress = normalizeAddress(address, normalizedEmail);
 
+    // If referral code provided, validate it first
+    let referrerAddress = null;
+    if (referralCode && referralCode.trim().length > 0) {
+      const referrerResult = await pool.query(
+        'SELECT address FROM users WHERE referral_code = $1',
+        [referralCode.trim().toUpperCase()]
+      );
+      
+      if (referrerResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid referral code' });
+      }
+      
+      referrerAddress = referrerResult.rows[0].address;
+    }
+
+    // Hash the password before storing
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    
     const query = `
-      INSERT INTO users (address, name, email, phone)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO users (address, name, email, phone, password_hash, referred_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (address)
-      DO UPDATE SET name = $2, email = $3, phone = $4
-      RETURNING address, name, email, phone, created_at`;
+      DO UPDATE SET name = $2, email = $3, phone = $4, password_hash = $5
+      RETURNING address, name, email, phone, created_at, referred_by`;
 
     const { rows } = await pool.query(query, [
       normalizedAddress,
       name,
       normalizedEmail,
       phone || null,
+      passwordHash,
+      referrerAddress,
     ]);
+
+    // If referral code was used, increment referrer's count and create referral record
+    if (referrerAddress) {
+      await pool.query(
+        'UPDATE users SET referral_count = referral_count + 1 WHERE address = $1',
+        [referrerAddress]
+      );
+      
+      await pool.query(
+        'INSERT INTO referrals (referrer_address, referee_address) VALUES ($1, $2)',
+        [referrerAddress, normalizedAddress]
+      );
+      
+      console.log(`✅ User ${normalizedEmail} registered with referral code: ${referralCode}`);
+    }
 
     const stats = await buildDashboardStats(normalizedAddress);
     res.json({ success: true, data: { user: rows[0], stats } });
@@ -522,14 +585,14 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required.' });
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
   }
 
   try {
     const query = `
-      SELECT address, name, email, phone
+      SELECT address, name, email, phone, password_hash
         FROM users
        WHERE email = $1
        LIMIT 1`;
@@ -537,10 +600,21 @@ app.post('/api/auth/login', async (req, res) => {
     const { rows } = await pool.query(query, [email.toLowerCase()]);
 
     if (!rows.length) {
-      return res.status(401).json({ error: 'User not found.' });
+      return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
     const user = rows[0];
+    
+    // Verify password
+    const passwordMatch = await bcrypt.compare(password, user.password_hash || '');
+    
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    
+    // Remove password_hash from response
+    delete user.password_hash;
+    
     const stats = await buildDashboardStats(user.address);
 
     res.json({ success: true, data: { user, stats } });
@@ -550,7 +624,12 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Dashboard stats
+// Get beneficiary wallet address
+app.get('/api/beneficiary-address', async (req, res) => {
+  res.json({ success: true, address: BENEFICIARY_WALLET_ADDRESS });
+});
+
+// Dashboard stats by address (legacy)
 app.get('/api/dashboard/:address', async (req, res) => {
   const { address } = req.params;
   if (!address) {
@@ -562,6 +641,23 @@ app.get('/api/dashboard/:address', async (req, res) => {
     res.json({ success: true, data: stats });
   } catch (error) {
     console.error('Dashboard stats error:', error.message);
+    res.status(500).json({ error: 'Unable to fetch dashboard stats.' });
+  }
+});
+
+// Dashboard stats by email (preferred)
+app.get('/api/dashboard/by-email/:email', async (req, res) => {
+  const { email } = req.params;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required.' });
+  }
+
+  try {
+    // Query donations directly by email (since we now store email as donor_address)
+    const stats = await buildDashboardStats(email.toLowerCase());
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Dashboard stats by email error:', error.message);
     res.status(500).json({ error: 'Unable to fetch dashboard stats.' });
   }
 });
@@ -594,11 +690,11 @@ app.post('/api/campaign', async (req, res) => {
       name,
       description || '',
       Number.isFinite(goalValue) ? goalValue : 0,
-      owner_address || null,
+      owner_address || BENEFICIARY_WALLET_ADDRESS,
       cover_image_cid || null,
       category || 'General',
       Boolean(verified),
-      beneficiary_address || owner_address || null,
+      BENEFICIARY_WALLET_ADDRESS, // Always use the configured beneficiary address
     ]);
 
     const campaign = await getCampaignById(rows[0].id);
@@ -622,12 +718,16 @@ app.post('/api/donate', async (req, res) => {
   try {
     await client.query('BEGIN'); // Start a "Safety Box" transaction
 
-    // 1. Save Receipt Logic
-    const receiptQuery = `
-      INSERT INTO receipts (cid, size_bytes, pin_status, gateway_url)
-      VALUES ($1, $2, 'pinned', $3)
-      ON CONFLICT (cid) DO NOTHING`; // If receipt exists, skip
-    await client.query(receiptQuery, [cid, size_bytes, gateway_url]);
+    // 1. Save Receipt Logic (skip if it's a local-only receipt)
+    if (!cid.startsWith('local-receipt-')) {
+      const receiptQuery = `
+        INSERT INTO receipts (cid, size_bytes, pin_status, gateway_url)
+        VALUES ($1, $2, 'pinned', $3)
+        ON CONFLICT (cid) DO NOTHING`; // If receipt exists, skip
+      await client.query(receiptQuery, [cid, size_bytes, gateway_url]);
+    } else {
+      console.log('⚠️ Skipping IPFS receipt storage for local receipt:', cid);
+    }
 
     // 2. Save Donation Logic
     const donationQuery = `
@@ -640,6 +740,9 @@ app.post('/api/donate', async (req, res) => {
     const result = await client.query(donationQuery, [
       tx_hash, donor_address, campaign_id, cid, amount_wei
     ]);
+
+    // 3. Update user's total donated and impact score
+    await updateDonationStats(pool, donor_address, amount_wei);
 
     await client.query('COMMIT'); // Save everything permanently
     res.json({ success: true, data: result.rows[0] });
@@ -675,7 +778,7 @@ app.get('/api/donations/:address', async (req, res) => {
         r.size_bytes
       FROM donations d
       JOIN campaigns c ON d.campaign_id = c.id
-      JOIN receipts r ON d.cid = r.cid
+      LEFT JOIN receipts r ON d.cid = r.cid
       WHERE LOWER(d.donor_address) = LOWER($1)
       ORDER BY d.created_at DESC
     `;
@@ -690,6 +793,315 @@ app.get('/api/donations/:address', async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to fetch donation history',
       details: err.message 
+    });
+  }
+});
+
+// F. Get Donation History by Email
+// Returns all donations made by a user identified by email
+app.get('/api/donations/by-email/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    console.log(`📜 Fetching donation history for user: ${email}`);
+
+    // Query donations directly by email (since we now store email as donor_address)
+    const query = `
+      SELECT 
+        d.tx_hash,
+        d.amount_wei,
+        d.created_at,
+        d.status,
+        c.name as campaign_name,
+        c.beneficiary_address,
+        r.cid,
+        r.gateway_url,
+        r.size_bytes
+      FROM donations d
+      JOIN campaigns c ON d.campaign_id = c.id
+      LEFT JOIN receipts r ON d.cid = r.cid
+      WHERE LOWER(d.donor_address) = LOWER($1)
+      ORDER BY d.created_at DESC
+    `;
+
+    const result = await pool.query(query, [email.toLowerCase()]);
+    
+    console.log(`✅ Found ${result.rows.length} donations for ${email}`);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('❌ Error fetching donation history by email:', err.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch donation history',
+      details: err.message 
+    });
+  }
+});
+
+// --- REFERRAL & REWARD SYSTEM ENDPOINTS ---
+
+const referralService = require('./services/referralService');
+const impactScoreService = require('./services/impactScoreService');
+
+// Generate or get referral code for user
+app.post('/api/user/generate-referral', async (req, res) => {
+  try {
+    const { userAddress, email } = req.body;
+    
+    // Prioritize email-based generation
+    if (email) {
+      const referralCode = await referralService.getOrCreateReferralCodeByEmail(pool, email);
+      return res.json({
+        success: true,
+        referralCode
+      });
+    }
+    
+    // Fallback to wallet address
+    if (!userAddress) {
+      return res.status(400).json({ error: 'email or userAddress is required' });
+    }
+    
+    const referralCode = await referralService.getOrCreateReferralCode(pool, userAddress);
+    
+    res.json({
+      success: true,
+      referralCode
+    });
+  } catch (err) {
+    console.error('❌ Error generating referral code:', err.message);
+    res.status(500).json({
+      error: 'Failed to generate referral code',
+      details: err.message
+    });
+  }
+});
+
+// Get user's impact statistics
+app.get('/api/user/impact-stats', async (req, res) => {
+  try {
+    const { address, email } = req.query;
+    
+    // Prioritize email-based lookup
+    if (email) {
+      // Get user by email first to get wallet address
+      const userResult = await pool.query(
+        'SELECT address FROM users WHERE LOWER(email) = LOWER($1)',
+        [email]
+      );
+      
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const userAddress = userResult.rows[0].address || '';
+      
+      // Get impact stats (if wallet connected)
+      const impactStats = userAddress 
+        ? await impactScoreService.getImpactStats(pool, userAddress)
+        : { impactScore: 0, totalDonated: 0, rewardBalance: 0 };
+      
+      // Get referral stats by email
+      const referralStats = await referralService.getReferralStatsByEmail(pool, email);
+      
+      return res.json({
+        success: true,
+        data: {
+          impactScore: impactStats.impactScore,
+          totalDonated: impactStats.totalDonated,
+          referralCount: referralStats.referralCount,
+          rewardBalance: impactStats.rewardBalance,
+          referralCode: referralStats.referralCode,
+          referredBy: referralStats.referredBy
+        }
+      });
+    }
+    
+    // Fallback to wallet address
+    if (!address) {
+      return res.status(400).json({ error: 'email or address query parameter is required' });
+    }
+    
+    // Get impact stats
+    const impactStats = await impactScoreService.getImpactStats(pool, address);
+    
+    // Get referral stats
+    const referralStats = await referralService.getReferralStats(pool, address);
+    
+    res.json({
+      success: true,
+      data: {
+        impactScore: impactStats.impactScore,
+        totalDonated: impactStats.totalDonated,
+        referralCount: referralStats.referralCount,
+        rewardBalance: impactStats.rewardBalance,
+        referralCode: referralStats.referralCode,
+        referredBy: referralStats.referredBy
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error fetching impact stats:', err.message);
+    res.status(500).json({
+      error: 'Failed to fetch impact stats',
+      details: err.message
+    });
+  }
+});
+
+// Claim referral (link user to referrer)
+app.post('/api/referral/claim', async (req, res) => {
+  try {
+    const { userAddress, referralCode } = req.body;
+    
+    if (!userAddress || !referralCode) {
+      return res.status(400).json({ 
+        error: 'userAddress and referralCode are required' 
+      });
+    }
+    
+    const result = await referralService.bindReferral(pool, userAddress, referralCode);
+    
+    res.json({
+      success: true,
+      message: result.message,
+      referrerAddress: result.referrerAddress
+    });
+  } catch (err) {
+    console.error('❌ Error claiming referral:', err.message);
+    res.status(400).json({
+      error: 'Failed to claim referral',
+      details: err.message
+    });
+  }
+});
+
+// Get referral code details (for showing who owns a code)
+app.get('/api/referral/validate/:code', async (req, res) => {
+  try {
+    const { code } = req.params;
+    
+    const result = await pool.query(
+      'SELECT wallet_address FROM users WHERE referral_code = $1',
+      [code.toUpperCase()]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        valid: false,
+        message: 'Invalid referral code'
+      });
+    }
+    
+    res.json({
+      success: true,
+      valid: true,
+      referrerAddress: result.rows[0].wallet_address
+    });
+  } catch (err) {
+    console.error('❌ Error validating referral code:', err.message);
+    res.status(500).json({
+      error: 'Failed to validate referral code',
+      details: err.message
+    });
+  }
+});
+
+// Get reward history for user
+app.get('/api/user/reward-history', async (req, res) => {
+  try {
+    const { address } = req.query;
+    
+    if (!address) {
+      return res.status(400).json({ error: 'address query parameter is required' });
+    }
+    
+    const result = await pool.query(
+      `SELECT * FROM rewards_history 
+       WHERE LOWER(user_address) = LOWER($1) 
+       ORDER BY created_at DESC 
+       LIMIT 50`,
+      [address]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (err) {
+    console.error('❌ Error fetching reward history:', err.message);
+    res.status(500).json({
+      error: 'Failed to fetch reward history',
+      details: err.message
+    });
+  }
+});
+
+// Get detailed referral list (who used your code and how much they donated)
+app.get('/api/user/referrals', async (req, res) => {
+  try {
+    const { address, email } = req.query;
+    
+    if (!address && !email) {
+      return res.status(400).json({ error: 'address or email query parameter is required' });
+    }
+    
+    let referrerAddress;
+    
+    // If email provided, get the address from users table
+    if (email) {
+      const userResult = await pool.query(
+        'SELECT address FROM users WHERE LOWER(email) = LOWER($1)',
+        [email]
+      );
+      if (userResult.rows.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          totalReferrals: 0
+        });
+      }
+      referrerAddress = userResult.rows[0].address;
+    } else {
+      referrerAddress = address;
+    }
+    
+    // Get list of users who were referred by this address
+    const result = await pool.query(
+      `SELECT 
+        u.address as referee_address,
+        u.email as referee_email,
+        u.name as referee_name,
+        COALESCE(
+          (SELECT SUM(CAST(d.amount_wei AS NUMERIC)) / 1000000000000000000 
+           FROM donations d 
+           WHERE LOWER(d.donor_address) = LOWER(u.address) 
+           AND d.status IN ('Success', 'confirmed')),
+          0
+        ) as total_donated_eth,
+        u.created_at as referred_at,
+        COALESCE(
+          (SELECT COUNT(*) FROM donations d 
+           WHERE LOWER(d.donor_address) = LOWER(u.address) 
+           AND d.status IN ('Success', 'confirmed')),
+          0
+        ) as donation_count
+      FROM users u
+      WHERE LOWER(u.referred_by) = LOWER($1)
+      ORDER BY u.created_at DESC`,
+      [referrerAddress]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      totalReferrals: result.rows.length
+    });
+  } catch (err) {
+    console.error('❌ Error fetching referral list:', err.message);
+    res.status(500).json({
+      error: 'Failed to fetch referral list',
+      details: err.message
     });
   }
 });

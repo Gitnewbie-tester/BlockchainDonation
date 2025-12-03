@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ipfs_receipt_viewer.dart';
 
 class ReceiptScreen extends StatefulWidget {
   const ReceiptScreen({super.key});
@@ -290,10 +291,71 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                       const SizedBox(height: 16),
                                     ],
 
-                                    // Transaction Details
+                                    // On-Chain Details
                                     Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
+                                        const Text(
+                                          'On-Chain Details',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            color: AppTheme.slate800,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        
+                                        // Beneficiary Wallet Address
+                                        FutureBuilder<String>(
+                                          future: state.apiService.fetchBeneficiaryAddress(),
+                                          builder: (context, snapshot) {
+                                            final beneficiaryAddress = snapshot.data ?? '0x29B8...e146';
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  'Beneficiary Wallet:',
+                                                  style: TextStyle(
+                                                    color: AppTheme.slate600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.all(12),
+                                                  decoration: BoxDecoration(
+                                                    color: AppTheme.blue50,
+                                                    border: Border.all(color: AppTheme.blue200),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: Row(
+                                                    children: [
+                                                      const Icon(Icons.account_balance_wallet, 
+                                                        size: 16, 
+                                                        color: AppTheme.blue600
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          beneficiaryAddress,
+                                                          style: const TextStyle(
+                                                            fontFamily: 'monospace',
+                                                            fontSize: 12,
+                                                            color: AppTheme.slate800,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: 16),
+                                        const Divider(color: AppTheme.slate200),
+                                        const SizedBox(height: 16),
+                                        
                                         const Text(
                                           'Transaction Details',
                                           style: TextStyle(
@@ -533,6 +595,18 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                                     const SizedBox(height: 16),
                                     const Divider(color: AppTheme.slate200),
                                     const SizedBox(height: 16),
+
+                                    // IPFS Blockchain-Verified Receipt (if available)
+                                    if (donation.receiptCid != null && donation.receiptCid!.isNotEmpty)
+                                      Column(
+                                        children: [
+                                          IpfsReceiptViewer(
+                                            cid: donation.receiptCid!,
+                                            gatewayUrl: donation.gatewayUrl,
+                                          ),
+                                          const SizedBox(height: 24),
+                                        ],
+                                      ),
 
                                     // Action Buttons
                                     Column(

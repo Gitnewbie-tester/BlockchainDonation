@@ -10,21 +10,69 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  late AnimationController _emailShakeController;
+  late AnimationController _passwordShakeController;
+  late Animation<double> _emailShakeAnimation;
+  late Animation<double> _passwordShakeAnimation;
+  String? _emailError;
+  String? _passwordError;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Email shake animation
+    _emailShakeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _emailShakeAnimation = Tween<double>(begin: 0, end: 10)
+        .chain(CurveTween(curve: Curves.elasticIn))
+        .animate(_emailShakeController)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _emailShakeController.reverse();
+        }
+      });
+    
+    // Password shake animation
+    _passwordShakeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _passwordShakeAnimation = Tween<double>(begin: 0, end: 10)
+        .chain(CurveTween(curve: Curves.elasticIn))
+        .animate(_passwordShakeController)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _passwordShakeController.reverse();
+        }
+      });
+  }
 
   @override
   void dispose() {
+    _emailShakeController.dispose();
+    _passwordShakeController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
+    
+    if (!_formKey.currentState!.validate() || _isLoading) {
+      return;
+    }
 
     setState(() => _isLoading = true);
     final appState = Provider.of<AppState>(context, listen: false);
@@ -36,12 +84,40 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: $error')),
-        );
+        final errorMsg = error.toString()
+            .replaceAll('ApiException: ', '')
+            .replaceAll('Exception: ', '');
+        
+        // Detect if it's an email or password error
+        final lowerMsg = errorMsg.toLowerCase();
+        final isEmailError = lowerMsg.contains('email') || 
+                            lowerMsg.contains('user not found') ||
+                            lowerMsg.contains('not found');
+        final isPasswordError = lowerMsg.contains('password') || 
+                               lowerMsg.contains('invalid');
+        
+        setState(() {
+          if (isPasswordError && !isEmailError) {
+            // Password wrong
+            _passwordError = errorMsg;
+            _emailError = null;
+            _passwordShakeController.forward(from: 0);
+          } else if (isEmailError) {
+            // Email not found or invalid
+            _emailError = errorMsg;
+            _passwordError = null;
+            _emailShakeController.forward(from: 0);
+          } else {
+            // Generic error - show on both or password field
+            _passwordError = errorMsg;
+            _emailError = null;
+            _passwordShakeController.forward(from: 0);
+          }
+          _isLoading = false;
+        });
       }
     } finally {
-      if (mounted) {
+      if (mounted && _emailError == null && _passwordError == null) {
         setState(() => _isLoading = false);
       }
     }
@@ -96,76 +172,207 @@ class _LoginScreenState extends State<LoginScreen> {
                     
                     // Login Form Card
                     Card(
-                      color: Colors.white.withOpacity(0.9),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            children: [
-                              Text(
-                                'Login',
-                                style: Theme.of(context).textTheme.displaySmall,
-                              ),
-                              const SizedBox(height: 24),
-                              
-                              // Email Field
-                              TextFormField(
-                                controller: _emailController,
-                                decoration: InputDecoration(
-                                  labelText: 'Email',
-                                  hintText: 'Enter your email',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Colors.grey),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Colors.grey),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: AppTheme.blue600, width: 2),
+                        color: Colors.white.withOpacity(0.9),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Login',
+                                  style: Theme.of(context).textTheme.displaySmall,
+                                ),
+                                const SizedBox(height: 24),
+                                
+                                // Email Field with inline error
+                                AnimatedBuilder(
+                                  animation: _emailShakeAnimation,
+                                  builder: (context, child) {
+                                    return Transform.translate(
+                                      offset: Offset(_emailShakeAnimation.value, 0),
+                                      child: child,
+                                    );
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      TextFormField(
+                                        controller: _emailController,
+                                        decoration: InputDecoration(
+                                          labelText: 'Email',
+                                          hintText: 'Enter your @gmail.com email',
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _emailError != null ? const Color(0xFFDC2626) : Colors.grey,
+                                              width: _emailError != null ? 2 : 1,
+                                            ),
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _emailError != null ? const Color(0xFFDC2626) : Colors.grey,
+                                              width: _emailError != null ? 2 : 1,
+                                            ),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _emailError != null ? const Color(0xFFDC2626) : AppTheme.blue600,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          errorStyle: const TextStyle(height: 0, fontSize: 0),
+                                          errorBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                                          ),
+                                          focusedErrorBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                                          ),
+                                        ),
+                                        keyboardType: TextInputType.emailAddress,
+                                        onChanged: (_) {
+                                          if (_emailError != null) {
+                                            setState(() => _emailError = null);
+                                          }
+                                        },
+                                        validator: (value) {
+                                          if (value == null || value.isEmpty) {
+                                            return 'Please enter your email';
+                                          }
+                                          // Gmail validation regex
+                                          final gmailRegex = RegExp(r'^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]{0,62}[a-zA-Z0-9])?@gmail\.com$', caseSensitive: false);
+                                          if (!gmailRegex.hasMatch(value.trim())) {
+                                            return 'Email must be a valid @gmail.com address';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                      if (_emailError != null) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFEF2F2),
+                                            border: Border.all(color: const Color(0xFFDC2626)),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 16),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  _emailError!,
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF991B1B),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                                keyboardType: TextInputType.emailAddress,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Please enter your email';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 16),
-                              
-                              // Password Field
-                              TextFormField(
-                                controller: _passwordController,
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  hintText: 'Enter your password',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Colors.grey),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Colors.grey),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: AppTheme.blue600, width: 2),
+                                  const SizedBox(height: 16),
+                                
+                                // Password Field with inline error
+                                AnimatedBuilder(
+                                  animation: _passwordShakeAnimation,
+                                  builder: (context, child) {
+                                    return Transform.translate(
+                                      offset: Offset(_passwordShakeAnimation.value, 0),
+                                      child: child,
+                                    );
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      TextFormField(
+                                        controller: _passwordController,
+                                        decoration: InputDecoration(
+                                          labelText: 'Password',
+                                          hintText: 'Enter your password',
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _passwordError != null ? const Color(0xFFDC2626) : Colors.grey,
+                                              width: _passwordError != null ? 2 : 1,
+                                            ),
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _passwordError != null ? const Color(0xFFDC2626) : Colors.grey,
+                                              width: _passwordError != null ? 2 : 1,
+                                            ),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                              color: _passwordError != null ? const Color(0xFFDC2626) : AppTheme.blue600,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          errorStyle: const TextStyle(height: 0, fontSize: 0),
+                                          errorBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                                          ),
+                                          focusedErrorBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                                          ),
+                                        ),
+                                        obscureText: true,
+                                        onChanged: (_) {
+                                          if (_passwordError != null) {
+                                            setState(() => _passwordError = null);
+                                          }
+                                        },
+                                        validator: (value) {
+                                          if (value == null || value.isEmpty) {
+                                            return 'Please enter your password';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                      if (_passwordError != null) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFEF2F2),
+                                            border: Border.all(color: const Color(0xFFDC2626)),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 16),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  _passwordError!,
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF991B1B),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                                obscureText: true,
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Please enter your password';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 24),
+                                const SizedBox(height: 24),
                               
                               // Login Button
                               SizedBox(
@@ -199,10 +406,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 child: const Text('Forgot Password?'),
                               ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
                     ),
                     const SizedBox(height: 24),
                     

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/app_state.dart';
 import '../theme/app_theme.dart';
+import '../utils/wallet_connection_helper.dart';
+import '../widgets/referral_rewards_widget.dart';
 
 class ProfileHubScreen extends StatelessWidget {
   const ProfileHubScreen({super.key});
@@ -120,30 +122,41 @@ class ProfileHubScreen extends StatelessWidget {
                         ),
                         ListTile(
                           title: Text(
-                            state.walletAddress.isEmpty
+                            state.walletAddress.isEmpty || 
+                            state.walletAddress == '0x4A9D9e820651c21947906F1BAA7f7f210e682b12' ||
+                            state.walletAddress == '0x0000000000000000000000000000000000000000'
                                 ? 'Not connected'
                                 : '${state.walletAddress.substring(0, 6)}...${state.walletAddress.substring(state.walletAddress.length - 4)}',
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
-                          subtitle: state.walletAddress.isEmpty
-                              ? null
+                          subtitle: state.walletAddress.isEmpty || 
+                                    state.walletAddress == '0x4A9D9e820651c21947906F1BAA7f7f210e682b12' ||
+                                    state.walletAddress == '0x0000000000000000000000000000000000000000'
+                              ? const Text(
+                                  'Connect your MetaMask wallet to make donations',
+                                  style: TextStyle(color: AppTheme.slate600, fontSize: 13),
+                                )
                               : Text(
                                   'Balance: ${state.walletBalance} ETH',
                                   style: TextStyle(color: AppTheme.green600, fontWeight: FontWeight.bold),
                                 ),
-                          trailing: state.walletAddress.isEmpty
-                              ? null
+                          trailing: state.walletAddress.isEmpty || 
+                                    state.walletAddress == '0x4A9D9e820651c21947906F1BAA7f7f210e682b12' ||
+                                    state.walletAddress == '0x0000000000000000000000000000000000000000'
+                              ? ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await ensureWalletConnection(context, state);
+                                  },
+                                  icon: const Icon(Icons.account_balance_wallet, size: 18),
+                                  label: const Text('Connect'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.blue600,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                )
                               : ElevatedButton.icon(
                                   onPressed: () async {
                                     await state.disconnectWallet();
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Wallet disconnected'),
-                                          backgroundColor: Colors.green,
-                                        ),
-                                      );
-                                    }
                                   },
                                   icon: const Icon(Icons.logout, size: 18),
                                   label: const Text('Disconnect'),
@@ -181,6 +194,12 @@ class ProfileHubScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  
+                  // Referral & Rewards Widget (shows when logged in)
+                  if (state.isLoggedIn)
+                    const ReferralRewardsWidget(),
+                  if (state.isLoggedIn)
+                    const SizedBox(height: 16),
                   
                   // Logout Button
                   SizedBox(

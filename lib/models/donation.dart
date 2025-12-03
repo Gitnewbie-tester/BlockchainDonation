@@ -6,6 +6,8 @@ class Donation {
   final String timestamp;
   final String gasUsed;
   final String blockNumber;
+  final String? receiptCid;  // IPFS CID for blockchain-verified receipt
+  final String? gatewayUrl;  // Full IPFS gateway URL
 
   Donation({
     required this.amount,
@@ -15,5 +17,7 @@ class Donation {
     required this.timestamp,
     required this.gasUsed,
     required this.blockNumber,
+    this.receiptCid,
+    this.gatewayUrl,
   });
 }

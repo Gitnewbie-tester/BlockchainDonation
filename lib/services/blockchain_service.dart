@@ -4,9 +4,9 @@ import 'package:http/http.dart' as http;
 
 class BlockchainService {
   // Use a public RPC endpoint (you can change this to your preferred network)
-  // Using Ankr's public endpoint which is more reliable than Alchemy demo
-  static const String _rpcUrl = 'https://rpc.ankr.com/eth_sepolia'; // Sepolia testnet
-  // For mainnet: 'https://rpc.ankr.com/eth'
+  // Using public Sepolia RPC endpoints that don't require authentication
+  static const String _rpcUrl = 'https://ethereum-sepolia-rpc.publicnode.com'; // Sepolia testnet
+  // Alternative: 'https://sepolia.drpc.org' or 'https://rpc.sepolia.org'
   
   late final Web3Client _client;
   
@@ -18,16 +18,58 @@ class BlockchainService {
   /// Returns the balance as a string in ETH (not Wei)
   Future<String> getBalance(String address) async {
     try {
-      final ethAddress = EthereumAddress.fromHex(address);
+      print('\n🔍 ===== FETCHING BALANCE =====');
+      print('   Raw address received: "$address"');
+      print('   Address length: ${address.length}');
+      print('   Using RPC: $_rpcUrl');
+      
+      // Validate address format
+      if (address.isEmpty) {
+        print('   ❌ ERROR: Empty address provided');
+        return '0.0000';
+      }
+      
+      // Ensure address starts with 0x
+      String cleanAddress = address.trim();
+      if (!cleanAddress.toLowerCase().startsWith('0x')) {
+        print('   ⚠️ WARNING: Address missing 0x prefix, adding it');
+        cleanAddress = '0x$cleanAddress';
+      }
+      
+      print('   Clean address: "$cleanAddress"');
+      
+      // Validate address length (should be 42 characters with 0x prefix)
+      if (cleanAddress.length != 42) {
+        print('   ❌ ERROR: Invalid address length (${cleanAddress.length}, expected 42)');
+        return '0.0000';
+      }
+      
+      final ethAddress = EthereumAddress.fromHex(cleanAddress);
+      print('   ✅ Valid Ethereum address created');
+      print('   Querying Sepolia network...');
+      
       final balance = await _client.getBalance(ethAddress);
+      
+      print('   📊 Balance in Wei: ${balance.getInWei}');
       
       // Convert Wei to ETH (1 ETH = 10^18 Wei)
       final ethBalance = balance.getValueInUnit(EtherUnit.ether);
       
+      print('   💰 Balance in ETH: $ethBalance');
+      
       // Format to 4 decimal places
-      return ethBalance.toStringAsFixed(4);
-    } catch (e) {
-      print('Error fetching balance: $e');
+      final formatted = ethBalance.toStringAsFixed(4);
+      print('   ✅ Formatted balance: $formatted ETH');
+      print('===== BALANCE FETCH COMPLETE =====\n');
+      return formatted;
+    } catch (e, stackTrace) {
+      print('\n❌ ===== ERROR FETCHING BALANCE =====');
+      print('   Error type: ${e.runtimeType}');
+      print('   Error message: $e');
+      print('   Address: $address');
+      print('   RPC: $_rpcUrl');
+      print('   Stack trace: $stackTrace');
+      print('===== ERROR END =====\n');
       return '0.0000';
     }
   }
@@ -167,7 +209,14 @@ class BlockchainService {
       }
       
       print('🔍 Fetching receipt for: $txHash');
-      final receipt = await _client.getTransactionReceipt(txHash);
+      print('   Timeout: 10 seconds');
+      final receipt = await _client.getTransactionReceipt(txHash).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          print('⏱️ Transaction receipt fetch timed out after 10 seconds');
+          return null;
+        },
+      );
       
       if (receipt != null) {
         // Format gas used with commas
@@ -188,6 +237,9 @@ class BlockchainService {
       return null;
     } catch (e) {
       print('❌ Error fetching transaction details: $e');
+      if (e.toString().contains('timeout') || e.toString().contains('Timeout')) {
+        print('   Connection timeout - RPC endpoint may be slow or unreachable');
+      }
       return null;
     }
   }

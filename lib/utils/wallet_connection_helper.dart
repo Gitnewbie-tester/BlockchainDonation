@@ -1,71 +1,59 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/wallet_service.dart';
-import '../widgets/connect_wallet_modal.dart';
 import 'app_state.dart';
 
 Future<void> ensureWalletConnection(BuildContext context, AppState state) async {
+  print('🔐 ensureWalletConnection called');
+  print('   Current wallet address: ${state.walletAddress}');
+  print('   Is empty: ${state.walletAddress.isEmpty}');
+  
   if (state.walletAddress.isNotEmpty) {
+    print('   Wallet already connected, navigating to profile');
     state.navigateTo(Screen.profile);
     return;
   }
+  
+  print('   Wallet not connected, showing connection modal...');
 
-  if (kIsWeb && walletConnector.isMetaMaskAvailable) {
-    await _showWebWalletModal(context, state);
-    return;
-  }
-
+  // Mobile only - use WalletConnect
   if (walletConnector.isWalletConnectAvailable) {
     await _connectViaWalletConnect(context, state);
     return;
   }
 
-  if (kIsWeb) {
-    await _showWebWalletModal(context, state);
-    return;
-  }
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'No supported wallets detected. Install MetaMask or configure WalletConnect to proceed.',
-      ),
-    ),
-  );
-}
-
-Future<void> _showWebWalletModal(BuildContext context, AppState state) async {
-  await showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (sheetContext) {
-      return ConnectWalletModal(
-        onClose: () => Navigator.of(sheetContext).pop(),
-        onConnect: (address) {
-          state.connectWallet(address);
-          Navigator.of(sheetContext).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Wallet connected.')),
-          );
-        },
-      );
-    },
-  );
+  // Error state - WalletConnect not configured
+  print('❌ WalletConnect not configured. Please set WC_PROJECT_ID.');
 }
 
 Future<void> _connectViaWalletConnect(BuildContext context, AppState state) async {
+  print('📱 _connectViaWalletConnect: Starting DIRECT MetaMask launch');
+  print('   Current wallet address in state: ${state.walletAddress}');
+  
+  if (!context.mounted) {
+    print('   ⚠️ Context not mounted before connection attempt');
+    return;
+  }
+  
   try {
-    final address = await walletConnector.connectWithWalletConnect(context);
-    if (!context.mounted) return;
+    print('   Launching MetaMask directly without intermediate screen...');
+    final address = await walletConnector.connectDirectly();
+    print('   ✅ Received address from MetaMask: $address');
+    
+    if (!context.mounted) {
+      print('   ⚠️ Context not mounted after connection, but wallet is connected');
+      // Still connect the wallet even if context is not mounted
+      state.connectWallet(address);
+      return;
+    }
+    
+    print('   Calling state.connectWallet with address: $address');
+    // Connect wallet immediately (UI updates happen fast)
     state.connectWallet(address);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Wallet connected.')),
-    );
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Wallet connection failed: $error')),
-    );
+    print('   ✅ Wallet connected successfully');
+  } catch (error, stackTrace) {
+    print('   ❌ WalletConnect error: $error');
+    print('   Stack trace: $stackTrace');
+    // Error is handled by state management
   }
 }

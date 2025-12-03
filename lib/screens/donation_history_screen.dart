@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/app_state.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../widgets/ipfs_receipt_viewer.dart';
+import '../theme/app_theme.dart';
 
 class DonationHistoryScreen extends StatefulWidget {
   const DonationHistoryScreen({super.key});
@@ -31,32 +32,26 @@ class _DonationHistoryScreenState extends State<DonationHistoryScreen> {
 
     try {
       final appState = Provider.of<AppState>(context, listen: false);
-      final walletAddress = appState.walletAddress;
+      final userEmail = appState.user.email;
 
-      if (walletAddress.isEmpty) {
+      if (userEmail.isEmpty) {
         setState(() {
-          _error = 'Please connect your wallet first';
+          _error = 'Please login first';
           _loading = false;
         });
         return;
       }
 
-      // Use 10.0.2.2 for Android emulator to reach localhost
-      final url = Uri.parse('http://10.0.2.2:3000/api/donations/$walletAddress');
-      print('📡 Loading donation history from: $url');
+      print('📡 Loading donation history for user: $userEmail');
 
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as List;
-        setState(() {
-          _donations = data.cast<Map<String, dynamic>>();
-          _loading = false;
-        });
-        print('✅ Loaded ${_donations.length} donations');
-      } else {
-        throw Exception('Failed to load donations: ${response.statusCode}');
-      }
+      final apiService = ApiService();
+      final donations = await apiService.fetchDonationsByEmail(userEmail);
+      
+      setState(() {
+        _donations = donations;
+        _loading = false;
+      });
+      print('✅ Loaded ${_donations.length} donations');
     } catch (e) {
       print('❌ Error loading donations: $e');
       setState(() {
@@ -259,13 +254,14 @@ class _DonationHistoryScreenState extends State<DonationHistoryScreen> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 // View Receipt on IPFS
-                if (gatewayUrl.isNotEmpty)
+                if (gatewayUrl.isNotEmpty && donation['cid'] != null)
                   TextButton.icon(
-                    onPressed: () => _openUrl(gatewayUrl),
+                    onPressed: () => _showReceiptDialog(context, donation['cid'], campaignName, amountEth),
                     icon: const Icon(Icons.receipt, size: 18),
-                    label: const Text('Receipt'),
+                    label: const Text('View Receipt'),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
+                      foregroundColor: AppTheme.green600,
                     ),
                   ),
 
@@ -279,6 +275,7 @@ class _DonationHistoryScreenState extends State<DonationHistoryScreen> {
                     label: const Text('Etherscan'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
+                      backgroundColor: AppTheme.blue600,
                     ),
                   ),
               ],
@@ -314,5 +311,78 @@ class _DonationHistoryScreenState extends State<DonationHistoryScreen> {
   Future<void> _openEtherscan(String txHash) async {
     final url = 'https://sepolia.etherscan.io/tx/$txHash';
     await _openUrl(url);
+  }
+
+  void _showReceiptDialog(BuildContext context, String cid, String campaignName, String amountEth) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppTheme.green600, AppTheme.blue600],
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Colors.white, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Donation Receipt',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            campaignName,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // Receipt content
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: IpfsReceiptViewer(cid: cid),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -1,12 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:walletconnect_flutter_v2/walletconnect_flutter_v2.dart';
 import 'package:walletconnect_modal_flutter/walletconnect_modal_flutter.dart';
 
 import '../main.dart' show registerWalletService;
-import '../screens/wallet_connect_test_screen.dart';
 import 'wallet_service_base.dart';
 import 'wallet_service_config.dart';
 
@@ -25,85 +23,96 @@ class _MobileWalletConnector implements WalletConnector {
         'MetaMask browser extension is unavailable on mobile.');
   }
 
+  /// Connect directly to MetaMask without intermediate screen
   @override
-  Future<String> connectWithWalletConnect(BuildContext context) async {
+  Future<String> connectDirectly() async {
     final service = await _ensureModalService();
-
-    // Check if we already have an active session (e.g., restored from deep link)
-    if (service.isConnected && service.address != null) {
-      print('✅ WalletConnect: Already connected! Address: ${service.address}');
-      return service.address!;
-    }
-
-    // Check for existing sessions that might need restoration
-    final sessions = service.web3App?.sessions.getAll();
-    if (sessions != null && sessions.isNotEmpty) {
-      print('📁 WalletConnect: Found ${sessions.length} existing session(s)');
-      for (final session in sessions) {
-        print('   Session topic: ${session.topic}');
-        print('   Peer: ${session.peer.metadata.name}');
-        
-        // Verify the session is still valid
-        try {
-          final namespaces = session.namespaces;
-          if (namespaces.containsKey('eip155')) {
-            final accounts = namespaces['eip155']?.accounts;
-            if (accounts != null && accounts.isNotEmpty) {
-              final account = accounts.first;
-              final parts = account.split(':');
-              if (parts.length >= 3) {
-                final address = parts[2];
-                print('✅ WalletConnect: Using existing valid session with address: $address');
-                print('   No need to reconnect - session is active!');
-                return address;
-              }
-            }
+    
+    print('🚀 DIRECT CONNECTION: Launching MetaMask immediately');
+    
+    try {
+      // Check if already connected
+      if (service.isConnected && service.address != null && service.address!.isNotEmpty) {
+        print('✅ Already connected: ${service.address}');
+        return service.address!;
+      }
+      
+      // Generate WalletConnect URI
+      print('📱 Generating WalletConnect URI...');
+      await service.rebuildConnectionUri();
+      final wcUri = service.wcUri;
+      
+      if (wcUri == null || wcUri.isEmpty) {
+        throw WalletException('Failed to generate WalletConnect URI');
+      }
+      
+      print('✅ URI generated, launching MetaMask...');
+      
+      // Launch MetaMask directly
+      final encodedUri = Uri.encodeComponent(wcUri);
+      final metamaskLink = Uri.parse('https://metamask.app.link/wc?uri=$encodedUri');
+      
+      final launched = await launchUrl(
+        metamaskLink,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched) {
+        throw WalletException('Failed to launch MetaMask app');
+      }
+      
+      print('✅ MetaMask launched, waiting for connection...');
+      
+      // Poll for connection with timeout
+      final completer = Completer<String>();
+      Timer? timeoutTimer;
+      Timer? pollTimer;
+      
+      // Setup session listener
+      void sessionListener(SessionConnect? args) {
+        print('⚡ Session connected!');
+        if (service.isConnected && service.address != null) {
+          if (!completer.isCompleted) {
+            completer.complete(service.address!);
           }
-        } catch (e) {
-          print('   Session validation failed: $e');
         }
       }
       
-      // If we get here, sessions exist but are invalid - clear them
-      print('⚠️ Found invalid sessions, clearing...');
-      for (final session in sessions) {
-        try {
-          await service.web3App?.disconnectSession(
-            topic: session.topic,
-            reason: Errors.getSdkError(Errors.USER_DISCONNECTED),
-          );
-          print('   Cleared invalid session: ${session.topic}');
-        } catch (e) {
-          print('   Warning: Could not clear session ${session.topic}: $e');
+      service.web3App?.onSessionConnect.subscribe(sessionListener);
+      
+      // Polling fallback
+      pollTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+        if (service.isConnected && service.address != null && service.address!.isNotEmpty) {
+          print('✅ Connection detected via polling: ${service.address}');
+          if (!completer.isCompleted) {
+            completer.complete(service.address!);
+          }
+          timer.cancel();
         }
+      });
+      
+      // Timeout after 30 seconds
+      timeoutTimer = Timer(const Duration(seconds: 30), () {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            WalletException('Connection timeout - please try again'),
+          );
+        }
+      });
+      
+      try {
+        final address = await completer.future;
+        print('✅✅✅ DIRECT CONNECTION SUCCESSFUL: $address');
+        return address;
+      } finally {
+        service.web3App?.onSessionConnect.unsubscribe(sessionListener);
+        timeoutTimer.cancel();
+        pollTimer.cancel();
       }
-    }
-
-    print('WalletConnect: opening wallet connect screen...');
-
-    if (!context.mounted) {
-      throw WalletException('Context no longer valid.');
-    }
-
-    try {
-      // Navigate to the WalletConnect screen with the official button
-      final address = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (context) => WalletConnectTestScreen(service: service),
-        ),
-      );
-
-      if (address == null || address.isEmpty) {
-        throw WalletException('Connection cancelled or no address received');
-      }
-
-      print('WalletConnect: ✅ Connection successful! Address: $address');
-      return address;
-    } on WalletException {
-      rethrow;
+      
     } catch (error) {
-      print('WalletConnect: Connection error: $error');
-      throw WalletException('WalletConnect failed: $error');
+      print('❌ Direct connection error: $error');
+      throw WalletException('MetaMask connection failed: $error');
     }
   }
 
@@ -144,20 +153,27 @@ class _MobileWalletConnector implements WalletConnector {
       }
     });
     
+    // Add instant session listener to detect new connections immediately
+    service.web3App?.onSessionConnect.subscribe((args) {
+      print('⚡ SESSION CONNECTED EVENT!');
+      print('   Session: ${args?.session.topic}');
+      print('   This should trigger connection detection immediately');
+    });
+    
     return service;
   }
 
   Map<String, RequiredNamespace> get _requiredNamespaces => {
         'eip155': const RequiredNamespace(
           chains: [
-            'eip155:1',
-            'eip155:11155111',
+            'eip155:11155111', // Sepolia testnet ONLY
           ],
           methods: [
             'eth_sendTransaction',
             'personal_sign',
             'eth_signTypedData',
             'eth_signTypedData_v4',
+            'wallet_switchEthereumChain', // Allow network switching
           ],
           events: ['accountsChanged', 'chainChanged'],
         ),
@@ -242,7 +258,7 @@ class _MobileWalletConnector implements WalletConnector {
       // Start the request (non-blocking) and immediately try to launch the wallet
       final requestFuture = service.web3App!.request(
         topic: session.topic,
-        chainId: 'eip155:11155111',
+        chainId: 'eip155:11155111', // Sepolia testnet
         request: SessionRequestParams(
           method: 'eth_sendTransaction',
           params: [txParams],

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'token_info_dialog.dart';
 
 class HeaderWidget extends StatelessWidget {
   final String walletAddress;
   final String walletBalance;
   final String userName;
+  final String tokenBalance;
   final VoidCallback onWalletClick;
   final VoidCallback onProfileClick;
   final VoidCallback onLogout;
@@ -14,6 +16,7 @@ class HeaderWidget extends StatelessWidget {
     required this.walletAddress,
     required this.walletBalance,
     required this.userName,
+    required this.tokenBalance,
     required this.onWalletClick,
     required this.onProfileClick,
     required this.onLogout,
@@ -48,24 +51,76 @@ class HeaderWidget extends StatelessWidget {
               ),
             ),
             
-            // Wallet Button (at far right)
-            if (walletAddress.isNotEmpty)
-              _WalletButton(
-                address: walletAddress,
-                balance: walletBalance,
-                onClick: onWalletClick,
-              )
-            else
-              OutlinedButton.icon(
+            // Token and Wallet Section (at far right)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Token Display (Clickable)
+                InkWell(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => TokenInfoDialog(currentBalance: tokenBalance),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFAF5FF), Color(0xFFF3E8FF)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFF3E8FF)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.stars, size: 16, color: Color(0xFF9333EA)),
+                        const SizedBox(width: 6),
+                        Text(
+                          tokenBalance,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF6B21A8),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'CCT',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF9333EA),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.info_outline, size: 14, color: Color(0xFF9333EA)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Wallet Button
+                if (walletAddress.isNotEmpty)
+                  _WalletButton(
+                    address: walletAddress,
+                    balance: walletBalance,
+                    onClick: onWalletClick,
+                  )
+                else
+                  OutlinedButton.icon(
                 onPressed: onWalletClick,
                 icon: const Icon(Icons.account_balance_wallet, size: 16),
                 label: const Text('Connect Wallet'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.blue600,
-                  side: const BorderSide(color: AppTheme.blue200),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                ),
-              ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.blue600,
+                      side: const BorderSide(color: AppTheme.blue200),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

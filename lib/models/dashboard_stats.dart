@@ -3,12 +3,14 @@ class DashboardStats {
   final int charitiesSupported;
   final int impactScore;
   final int totalDonations;
+  final String tokenBalance;
 
   const DashboardStats({
     this.totalDonatedEth = '0.000',
     this.charitiesSupported = 0,
     this.impactScore = 0,
     this.totalDonations = 0,
+    this.tokenBalance = '0.00',
   });
 
   DashboardStats copyWith({
@@ -16,12 +18,14 @@ class DashboardStats {
     int? charitiesSupported,
     int? impactScore,
     int? totalDonations,
+    String? tokenBalance,
   }) {
     return DashboardStats(
       totalDonatedEth: totalDonatedEth ?? this.totalDonatedEth,
       charitiesSupported: charitiesSupported ?? this.charitiesSupported,
       impactScore: impactScore ?? this.impactScore,
       totalDonations: totalDonations ?? this.totalDonations,
+      tokenBalance: tokenBalance ?? this.tokenBalance,
     );
   }
 
@@ -31,6 +35,7 @@ class DashboardStats {
       charitiesSupported: _toInt(json['charitiesSupported'] ?? json['charities_supported']),
       impactScore: _toInt(json['impactScore'] ?? json['impact_score']),
       totalDonations: _toInt(json['totalDonations'] ?? json['total_donations']),
+      tokenBalance: (json['tokenBalance'] ?? json['token_balance'] ?? '0.00').toString(),
     );
   }
 

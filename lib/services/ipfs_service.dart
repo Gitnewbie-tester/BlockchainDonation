@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../utils/formatting_utils.dart';
 import 'dart:typed_data';
 
 /// Result of uploading a receipt to IPFS
@@ -34,11 +35,13 @@ class IpfsService {
     required String beneficiaryAddress,
   }) async {
     try {
+      print('📤 Uploading receipt to IPFS (Pinata)...');
+      print('   Timeout: 30 seconds');
       // Create receipt JSON
       final receipt = {
         'type': 'donation_receipt',
         'version': '1.0',
-        'timestamp': DateTime.now().toIso8601String(),
+        'timestamp': getMalaysiaTime().toIso8601String(),
         'transaction': {
           'hash': txHash,
           'network': 'sepolia',
@@ -72,7 +75,7 @@ class IpfsService {
       // Upload to Pinata
       final cid = await _uploadToPinata(
         jsonBytes,
-        'receipt_${DateTime.now().millisecondsSinceEpoch}.json',
+        'receipt_${getMalaysiaTime().millisecondsSinceEpoch}.json',
       );
 
       // Return result
@@ -80,7 +83,7 @@ class IpfsService {
         cid: cid,
         sizeBytes: jsonBytes.length,
         gatewayUrl: '$PINATA_GATEWAY/ipfs/$cid',
-        timestamp: DateTime.now(),
+        timestamp: getMalaysiaTime(),
       );
     } catch (e) {
       throw Exception('Failed to upload receipt to IPFS: $e');
@@ -125,8 +128,15 @@ class IpfsService {
         'cidVersion': 1,
       });
 
-      // Send request
-      final streamedResponse = await request.send();
+      // Send request with 30 second timeout
+      print('📤 Sending data to Pinata IPFS...');
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          print('⏱️ IPFS upload timed out after 30 seconds');
+          throw Exception('IPFS upload timeout - check your internet connection');
+        },
+      );
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -137,6 +147,10 @@ class IpfsService {
             'Pinata API error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
+      print('❌ IPFS upload failed: $e');
+      if (e.toString().contains('timeout')) {
+        throw Exception('IPFS connection timeout. Please check your internet connection and try again.');
+      }
       throw Exception('Failed to upload to Pinata: $e');
     }
   }

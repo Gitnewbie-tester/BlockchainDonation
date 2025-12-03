@@ -39,6 +39,7 @@ class CharityDetailScreen extends StatelessWidget {
                 walletAddress: state.walletAddress,
                 walletBalance: state.walletBalance,
                 userName: state.user.fullName,
+                tokenBalance: state.dashboardStats.tokenBalance,
                 onWalletClick: () => _handleWalletTap(context, state),
                 onProfileClick: () => state.navigateTo(Screen.profile),
                 onLogout: () => state.logout(),
@@ -211,11 +212,6 @@ class CharityDetailScreen extends StatelessWidget {
                                     _AddressLine(
                                       label: 'Beneficiary wallet',
                                       value: charity.beneficiaryAddress,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    _AddressLine(
-                                      label: 'Campaign owner',
-                                      value: charity.ownerAddress,
                                     ),
                                   ],
                                 ),

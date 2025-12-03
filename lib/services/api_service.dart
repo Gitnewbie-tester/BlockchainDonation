@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -12,7 +13,9 @@ class ApiService {
     const defaultPort = 3000;
     final bool isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final host = isAndroid ? '10.0.2.2' : 'localhost';
+    // Use computer's IP address for real Android device
+    // Use 10.0.2.2 for Android emulator, 192.168.100.66 for physical device
+    final host = isAndroid ? '192.168.100.66' : 'localhost';
     return 'http://$host:$defaultPort';
   }
 
@@ -20,36 +23,64 @@ class ApiService {
 
   Future<Map<String, dynamic>> _postJson(
       String path, Map<String, dynamic> payload) async {
-    final response = await http
-        .post(
-          _uri(path),
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
-        )
-        .timeout(const Duration(seconds: 10));
+    try {
+      final response = await http
+          .post(
+            _uri(path),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 30));
 
-    if (response.statusCode >= 400) {
-      throw ApiException(
-          'Request to $path failed (${response.statusCode}) ${response.body}');
+      if (response.statusCode >= 400) {
+        // Try to extract error message from response
+        try {
+          final errorBody = jsonDecode(response.body);
+          final errorMsg = errorBody['error']?.toString() ?? 'Request failed';
+          throw ApiException(errorMsg);
+        } catch (e) {
+          if (e is ApiException) rethrow;
+          throw ApiException('Request to $path failed (${response.statusCode})');
+        }
+      }
+
+      if (response.body.isEmpty) return <String, dynamic>{};
+      final decoded = jsonDecode(response.body);
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } on TimeoutException {
+      throw ApiException('Connection timeout. Please check if the backend server is running.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Connection error: $e. Please ensure the backend server is running.');
     }
-
-    if (response.body.isEmpty) return <String, dynamic>{};
-    final decoded = jsonDecode(response.body);
-    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> _getJson(String path) async {
-    final response =
-        await http.get(_uri(path)).timeout(const Duration(seconds: 10));
+    try {
+      final response =
+          await http.get(_uri(path)).timeout(const Duration(seconds: 30));
 
-    if (response.statusCode >= 400) {
-      throw ApiException(
-          'Request to $path failed (${response.statusCode}) ${response.body}');
+      if (response.statusCode >= 400) {
+        // Try to extract error message from response
+        try {
+          final errorBody = jsonDecode(response.body);
+          final errorMsg = errorBody['error']?.toString() ?? 'Request failed';
+          throw ApiException(errorMsg);
+        } catch (e) {
+          if (e is ApiException) rethrow;
+          throw ApiException('Request to $path failed (${response.statusCode})');
+        }
+      }
+
+      if (response.body.isEmpty) return <String, dynamic>{};
+      final decoded = jsonDecode(response.body);
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } on TimeoutException {
+      throw ApiException('Connection timeout. Please check if the backend server is running.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Connection error: $e. Please ensure the backend server is running.');
     }
-
-    if (response.body.isEmpty) return <String, dynamic>{};
-    final decoded = jsonDecode(response.body);
-    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> registerUser({
@@ -58,6 +89,7 @@ class ApiService {
     required String email,
     required String password,
     String? phone,
+    String? referralCode,
   }) {
     return _postJson('/api/auth/register', {
       'address': address,
@@ -65,6 +97,7 @@ class ApiService {
       'email': email,
       'phone': phone,
       'password': password,
+      if (referralCode != null && referralCode.isNotEmpty) 'referralCode': referralCode,
     });
   }
 
@@ -78,8 +111,28 @@ class ApiService {
     });
   }
 
+  Future<String> fetchBeneficiaryAddress() async {
+    final response = await _getJson('/api/beneficiary-address');
+    return response['address']?.toString() ?? '0x29B8a765082B5A523a45643A874e824b5752e146';
+  }
+
   Future<Map<String, dynamic>> fetchDashboardStats(String address) {
     return _getJson('/api/dashboard/$address');
+  }
+
+  Future<Map<String, dynamic>> fetchDashboardStatsByEmail(String email) {
+    return _getJson('/api/dashboard/by-email/$email');
+  }
+
+  Future<List<Map<String, dynamic>>> fetchDonationsByEmail(String email) async {
+    final response = await _getJson('/api/donations/by-email/$email');
+    final data = response['data'];
+    
+    if (data is List) {
+      return data.whereType<Map<String, dynamic>>().toList();
+    }
+    
+    return <Map<String, dynamic>>[];
   }
 
   Future<List<Map<String, dynamic>>> fetchCampaigns() async {

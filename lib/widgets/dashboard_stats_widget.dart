@@ -47,9 +47,9 @@ class DashboardStatsWidget extends StatelessWidget {
           const SizedBox(width: 16),
           _StatCard(
             icon: Icons.emoji_events,
-            label: 'Impact Score',
+            label: 'Community Score',
             value: impactScore.toString(),
-            description: 'Growing monthly',
+            description: 'Your contribution level',
             borderColor: const Color(0xFFF3E8FF), // purple-100
             textColor: const Color(0xFF581C87), // purple-900
             labelColor: const Color(0xFF6B21A8), // purple-800

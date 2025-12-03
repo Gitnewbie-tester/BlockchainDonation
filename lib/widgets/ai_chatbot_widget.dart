@@ -1,11 +1,8 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
-import '../services/api_service.dart';
 import '../services/chatgpt_service.dart';
 import '../utils/app_state.dart';
 
@@ -87,7 +84,6 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
   bool _isTyping = false;
   late AnimationController _fabAnimationController;
   late final Map<String, String> _trainedResponses;
-  late final String? _apiEndpoint;
   final ChatGPTService _chatGPTService = ChatGPTService();
   final List<Map<String, String>> _conversationHistory = [];
 
@@ -95,7 +91,6 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
   void initState() {
     super.initState();
     _trainedResponses = _buildResponseBank();
-    _apiEndpoint = widget.apiEndpoint ?? _resolveDefaultEndpoint();
     _fabAnimationController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
@@ -161,7 +156,7 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
           id: '${isBot ? 'bot' : 'user'}-${DateTime.now().millisecondsSinceEpoch}',
           text: text,
           isBot: isBot,
-          timestamp: DateTime.now(),
+          timestamp: DateTime.now().toUtc().add(const Duration(hours: 8)),
           action: action,
           actionData: actionData,
         ),
@@ -195,40 +190,6 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
     }
 
     return "I'd be happy to help! I can answer questions about making donations, blockchain technology, wallet setup, charity verification, or general platform features. Could you please rephrase your question or ask about one of these topics?";
-  }
-
-  Future<String?> _fetchResponseFromApi(String userMessage) async {
-    final endpoint = _apiEndpoint;
-    if (endpoint == null || endpoint.isEmpty) return null;
-
-    try {
-      final response = await http
-          .post(
-            Uri.parse(endpoint),
-            headers: {
-              'Content-Type': 'application/json',
-              if (widget.apiKey != null && widget.apiKey!.isNotEmpty)
-                'Authorization': 'Bearer ${widget.apiKey}',
-            },
-            body: jsonEncode({'message': userMessage}),
-          )
-          .timeout(const Duration(seconds: 8));
-
-      if (response.statusCode != 200) return null;
-
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final String? answer = decoded['answer'] as String? ?? decoded['response'] as String?;
-      final bool isTrained =
-          decoded['isTrained'] == true || decoded['is_trained'] == true || decoded['matched'] == true;
-
-      if (isTrained && answer != null && answer.trim().isNotEmpty) {
-        return answer.trim();
-      }
-    } catch (error) {
-      debugPrint('AI assistant API error: $error');
-    }
-
-    return null;
   }
 
   Future<void> _handleSendMessage() async {
@@ -626,15 +587,6 @@ class _AIChatbotWidgetState extends State<AIChatbotWidget> with SingleTickerProv
         ],
       ),
     );
-  }
-}
-
-String? _resolveDefaultEndpoint() {
-  try {
-    final service = ApiService();
-    return '${service.baseUrl}/api/chat';
-  } catch (_) {
-    return null;
   }
 }
 

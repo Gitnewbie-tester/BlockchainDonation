@@ -8,6 +8,7 @@ import '../models/dashboard_stats.dart';
 import '../services/api_service.dart';
 import '../services/blockchain_service.dart';
 import '../services/wallet_service.dart';
+import 'formatting_utils.dart';
 import '../services/ipfs_service.dart';
 import './contract_encoder.dart';
 
@@ -39,6 +40,7 @@ class AppState extends ChangeNotifier {
   static const String CONTRACT_ADDRESS = '0xd9145CCE52D386f254917e481eB44e9943F39138';
   Screen _currentScreen = Screen.login;
   bool _isLoggedIn = false;
+  String _userEmail = ''; // User's email for API calls
   String _walletAddress = '';
   String _walletBalance = '0.0000'; // Actual ETH balance from blockchain
   String? _selectedCategory;
@@ -71,6 +73,7 @@ class AppState extends ChangeNotifier {
   DashboardStats get dashboardStats => _dashboardStats;
   bool get isCampaignsLoading => _isCampaignsLoading;
   String? get campaignsError => _campaignsError;
+  ApiService get apiService => _apiService;
 
   List<String> get categories {
     final unique = _charities
@@ -154,54 +157,86 @@ class AppState extends ChangeNotifier {
     _hydrateAuthState(response);
   }
 
-  Future<void> register(String fullName, String email, String password) async {
-    if (_walletAddress.isEmpty) {
-      throw Exception('Connect your wallet with MetaMask before registering.');
-    }
+  Future<void> register(String fullName, String email, String password, {String? referralCode}) async {
+    // Allow registration without wallet - use recipient address as placeholder
+    final walletToUse = _walletAddress.isEmpty ? '0x4A9D9e820651c21947906F1BAA7f7f210e682b12' : _walletAddress;
 
     final response = await _apiService.registerUser(
-      address: _walletAddress,
+      address: walletToUse,
       name: fullName,
       email: email,
       password: password,
+      referralCode: referralCode,
     );
 
     _hydrateAuthState(response);
+    
+    // If wallet was already connected during registration, keep it
+    if (_walletAddress.isNotEmpty && _walletAddress != '0x4A9D9e820651c21947906F1BAA7f7f210e682b12') {
+      print('✅ User registered with connected wallet: $_walletAddress');
+    } else {
+      print('✅ User registered without wallet - can connect later from profile');
+    }
   }
 
   void logout() {
+    print('🚪 Logging out user...');
+    
+    // Disconnect wallet if connected
+    if (_walletAddress.isNotEmpty) {
+      print('🔌 Disconnecting wallet on logout...');
+      unawaited(disconnectWallet());
+    }
+    
     _isLoggedIn = false;
+    _userEmail = '';
     _walletAddress = '';
+    _walletBalance = '0.0000';
     _selectedCharity = null;
     _lastDonation = null;
     _selectedCategory = null;
     _dashboardStats = const DashboardStats();
     _currentScreen = Screen.login;
     notifyListeners();
+    print('✅ Logout complete');
   }
 
   void connectWallet(String address) {
+    print('🔗 connectWallet called with address: $address');
+    print('   Previous wallet address: $_walletAddress');
     _walletAddress = address;
+    print('   New wallet address stored: $_walletAddress');
     notifyListeners();
-    // Load dashboard stats and wallet balance when wallet is connected
-    unawaited(_refreshDashboardStats());
-    unawaited(_refreshWalletBalance());
+    print('   Listeners notified');
+    // Defer heavy operations with longer delay to prevent UI freeze
+    print('   Scheduling background refresh in 500ms...');
+    Future.delayed(const Duration(milliseconds: 500), () {
+      unawaited(_refreshWalletBalance());
+      // Delay dashboard stats even more since it's heavier
+      Future.delayed(const Duration(milliseconds: 500), () {
+        unawaited(_refreshDashboardStats());
+      });
+    });
   }
 
   Future<void> _refreshWalletBalance() async {
     if (_walletAddress.isEmpty) return;
     try {
       final balance = await _blockchainService.getBalance(_walletAddress);
-      _walletBalance = balance;
-      notifyListeners();
-      print('✅ Balance fetched: $balance ETH');
+      if (_walletBalance != balance) {
+        _walletBalance = balance;
+        notifyListeners();
+        print('✅ Balance fetched: $balance ETH');
+      }
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Error fetching wallet balance: $e');
       }
       // Don't retry, just set to 0 to avoid blocking
-      _walletBalance = '0.0000';
-      notifyListeners();
+      if (_walletBalance != '0.0000') {
+        _walletBalance = '0.0000';
+        notifyListeners();
+      }
     }
   }
 
@@ -321,31 +356,44 @@ class AppState extends ChangeNotifier {
 
     // Initialize variables that will be used across try-catch blocks
     String txHash = '';
-    String cid = 'receipt-pending';
+    String cid = 'local-receipt-${DateTime.now().millisecondsSinceEpoch}';
     String gatewayUrl = '';
     int sizeBytes = 0;
     
     try {
-      // STEP 1: Upload receipt to IPFS
+      // STEP 1: Try to upload receipt to IPFS (optional - won't block donation if it fails)
       if (kDebugMode) {
-        print('📤 Step 1: Uploading receipt to IPFS...');
+        print('📤 Step 1: Attempting IPFS upload (will continue if fails)...');
       }
       
-      final ipfsResult = await _ipfsService.uploadReceipt(
-        txHash: 'pending',  // Will be updated later
-        donorAddress: _walletAddress,
-        campaignId: campaignId,
-        campaignName: charity.title,
-        amountEth: ethAmount,
-        beneficiaryAddress: beneficiaryAddress,
-      );
-      
-      cid = ipfsResult.cid;
-      gatewayUrl = ipfsResult.gatewayUrl;
-      sizeBytes = ipfsResult.sizeBytes;
-      
-      if (kDebugMode) {
-        print('✅ Receipt uploaded! CID: $cid');
+      try {
+        final ipfsResult = await _ipfsService.uploadReceipt(
+          txHash: 'pending',  // Will be updated later
+          donorAddress: _walletAddress,
+          campaignId: campaignId,
+          campaignName: charity.title,
+          amountEth: ethAmount,
+          beneficiaryAddress: beneficiaryAddress,
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            print('⏱️ IPFS upload taking too long, proceeding without it...');
+            throw TimeoutException('IPFS upload timeout');
+          },
+        );
+        
+        cid = ipfsResult.cid;
+        gatewayUrl = ipfsResult.gatewayUrl;
+        sizeBytes = ipfsResult.sizeBytes;
+        
+        if (kDebugMode) {
+          print('✅ Receipt uploaded to IPFS! CID: $cid');
+        }
+      } catch (ipfsError) {
+        // IPFS failed but we'll continue with local receipt
+        print('⚠️ IPFS upload failed: $ipfsError');
+        print('📝 Continuing with local receipt storage...');
+        cid = 'local-receipt-${DateTime.now().millisecondsSinceEpoch}';
       }
       
       // STEP 2: Check if contract is deployed
@@ -393,10 +441,30 @@ class AppState extends ChangeNotifier {
         print('✅ Transaction sent! Hash: $txHash');
       }
     } catch (e) {
-      final errorMsg = e.toString();
+      final errorMsg = e.toString().toLowerCase();
       
-      // Check if this is the relay timeout (but transaction succeeded) - CHECK THIS FIRST!
-      if (errorMsg.contains('SUCCESS_NO_HASH:')) {
+      // Check for wallet session/connection errors
+      if (errorMsg.contains('no active session') || 
+          errorMsg.contains('session expired') ||
+          errorMsg.contains('not connected') ||
+          errorMsg.contains('connection closed') ||
+          errorMsg.contains('session not found')) {
+        if (kDebugMode) {
+          print('❌ Wallet session error: $e');
+        }
+        throw Exception(
+          'Wallet session expired\n\n'
+          'Your wallet connection has timed out.\n\n'
+          'Please:\n'
+          '1. Go to Profile screen\n'
+          '2. Disconnect wallet\n'
+          '3. Reconnect wallet\n'
+          '4. Try donating again'
+        );
+      }
+      
+      // Check if this is the relay timeout (but transaction succeeded) - CHECK THIS NEXT!
+      if (errorMsg.contains('success_no_hash:')) {
         if (kDebugMode) {
           print('🔍 Relay timeout - transaction succeeded but relay did not return hash');
           print('📡 Attempting to fetch transaction hash from blockchain...');
@@ -462,9 +530,11 @@ class AppState extends ChangeNotifier {
     // Record donation in database only if we have a real transaction hash
     if (txHash != 'RELAY_TIMEOUT_CHECK_METAMASK') {
       try {
+        // Use user's email (database identifier) instead of wallet address
+        // This ensures donations can be queried by email-based endpoints
         await _apiService.recordDonation(
           txHash: txHash,
-          donorAddress: _walletAddress,
+          donorAddress: _userEmail,
           campaignId: campaignId,
           amountWei: weiAmount,
           cid: cid,
@@ -498,6 +568,8 @@ class AppState extends ChangeNotifier {
       timestamp: DateTime.now().toString(),
       gasUsed: 'Pending...',
       blockNumber: 'Pending...',
+      receiptCid: cid.isNotEmpty ? cid : null,
+      gatewayUrl: gatewayUrl.isNotEmpty ? gatewayUrl : null,
     );
 
     _currentScreen = Screen.receipt;
@@ -511,7 +583,7 @@ class AppState extends ChangeNotifier {
       if (kDebugMode) {
         print('🔍 Starting background fetch for transaction details: $txHash');
       }
-      _fetchTransactionDetails(txHash, amount, charity.title, message);
+      _fetchTransactionDetails(txHash, amount, charity.title, message, cid, gatewayUrl);
     } else {
       if (kDebugMode) {
         print('⚠️ Skipping transaction details fetch - invalid hash: $txHash');
@@ -525,6 +597,8 @@ class AppState extends ChangeNotifier {
     String amount,
     String charityTitle,
     String message,
+    String receiptCid,
+    String receiptGatewayUrl,
   ) async {
     try {
       if (kDebugMode) {
@@ -550,9 +624,11 @@ class AppState extends ChangeNotifier {
             charity: charityTitle,
             message: message.isEmpty ? null : message,
             transactionHash: txHash,
-            timestamp: DateTime.now().toString(),
+            timestamp: formatMalaysiaTime(DateTime.now()),
             gasUsed: details['gasUsed'] ?? '21,000',
             blockNumber: details['blockNumber'] ?? 'Unknown',
+            receiptCid: receiptCid.isNotEmpty ? receiptCid : null,
+            gatewayUrl: receiptGatewayUrl.isNotEmpty ? receiptGatewayUrl : null,
           );
           
           notifyListeners();
@@ -571,7 +647,7 @@ class AppState extends ChangeNotifier {
         charity: charityTitle,
         message: message.isEmpty ? null : message,
         transactionHash: txHash,
-        timestamp: DateTime.now().toString(),
+        timestamp: formatMalaysiaTime(DateTime.now()),
         gasUsed: 'Unavailable',
         blockNumber: 'Unavailable',
       );
@@ -586,9 +662,11 @@ class AppState extends ChangeNotifier {
         charity: charityTitle,
         message: message.isEmpty ? null : message,
         transactionHash: txHash,
-        timestamp: DateTime.now().toString(),
+        timestamp: formatMalaysiaTime(DateTime.now()),
         gasUsed: 'Unavailable',
         blockNumber: 'Unavailable',
+        receiptCid: receiptCid.isNotEmpty ? receiptCid : null,
+        gatewayUrl: receiptGatewayUrl.isNotEmpty ? receiptGatewayUrl : null,
       );
       notifyListeners();
     }
@@ -627,15 +705,17 @@ class AppState extends ChangeNotifier {
     final weiAmount = (ethAmount * weiPerEth).round();
 
     // Generate receipt metadata
-    final cid = 'receipt-${DateTime.now().millisecondsSinceEpoch}';
+    final cid = 'receipt-${getMalaysiaTime().millisecondsSinceEpoch}';
     final gatewayUrl = 'https://ipfs.io/ipfs/$cid';
     const int sizeBytes = 512;
 
     // Record donation in database
     try {
+      // Use user's email (database identifier) instead of wallet address
+      // This ensures donations can be queried by email-based endpoints
       await _apiService.recordDonation(
         txHash: txHash,
-        donorAddress: _walletAddress,
+        donorAddress: _userEmail,
         campaignId: campaignId,
         amountWei: weiAmount,
         cid: cid,
@@ -659,16 +739,18 @@ class AppState extends ChangeNotifier {
       charity: charity.title,
       message: message.isEmpty ? null : message,
       transactionHash: txHash,
-      timestamp: DateTime.now().toString(),
+      timestamp: formatMalaysiaTime(DateTime.now()),
       gasUsed: 'Pending...',
       blockNumber: 'Pending...',
+      receiptCid: cid,
+      gatewayUrl: gatewayUrl,
     );
 
     _currentScreen = Screen.receipt;
     notifyListeners();
 
     // Fetch real transaction details in the background
-    _fetchTransactionDetails(txHash, amount, charity.title, message);
+    _fetchTransactionDetails(txHash, amount, charity.title, message, cid, gatewayUrl);
   }
 
   Future<void> updateUser(User updatedUser) async {
@@ -713,17 +795,45 @@ class AppState extends ChangeNotifier {
     _user = userJson.isNotEmpty
         ? User.fromBackend(userJson)
         : _user.copyWith(email: payload['email']?.toString());
+    
+    // Store user email for API calls
+    _userEmail = userJson['email']?.toString() ?? payload['email']?.toString() ?? '';
+    print('✅ User email stored: $_userEmail');
+    
+    // Only set wallet address if it's a valid Ethereum address
+    // Don't use placeholder addresses (recipient address, 0x0000...) or emails stored as addresses
+    final userAddress = userJson['address']?.toString() ?? '';
+    final RECIPIENT_PLACEHOLDER = '0x4A9D9e820651c21947906F1BAA7f7f210e682b12';
+    final ZERO_PLACEHOLDER = '0x0000000000000000000000000000000000000000';
+    
+    if (userAddress.isNotEmpty && 
+        userAddress != RECIPIENT_PLACEHOLDER &&
+        userAddress != ZERO_PLACEHOLDER &&
+        !userAddress.contains('@') &&
+        userAddress.startsWith('0x') &&
+        userAddress.length == 42) {
+      // Valid Ethereum address - set it
+      _walletAddress = userAddress;
+      print('✅ Logged in with wallet address: $_walletAddress');
+    } else {
+      // No valid wallet address - leave empty so user can connect later
+      _walletAddress = '';
+      print('✅ Logged in without wallet - user can connect from profile');
+    }
+    
     _dashboardStats = DashboardStats.fromJson(statsJson);
     _isLoggedIn = true;
     _currentScreen = Screen.dashboard;
     notifyListeners();
     unawaited(loadCampaigns(forceRefresh: true));
+    // Refresh dashboard stats to ensure latest data
+    unawaited(_refreshDashboardStats());
   }
 
   Future<void> _refreshDashboardStats() async {
-    if (_walletAddress.isEmpty) return;
+    if (_userEmail.isEmpty) return;
     try {
-      final response = await _apiService.fetchDashboardStats(_walletAddress);
+      final response = await _apiService.fetchDashboardStatsByEmail(_userEmail);
       final payload = response['data'] is Map<String, dynamic>
           ? response['data'] as Map<String, dynamic>
           : response;

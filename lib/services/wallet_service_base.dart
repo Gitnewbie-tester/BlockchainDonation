@@ -1,11 +1,11 @@
-import 'package:flutter/widgets.dart';
-
 abstract class WalletConnector {
   bool get isMetaMaskAvailable;
   Future<String> connectMetaMask();
 
   bool get isWalletConnectAvailable;
-  Future<String> connectWithWalletConnect(BuildContext context);
+  
+  /// Connect directly to MetaMask without intermediate screen
+  Future<String> connectDirectly();
   
   Future<void> disconnect();
   

@@ -2,10 +2,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ChatGPTService {
-  // TODO: Move API key to environment variable or secure configuration
-  // For production, use: const String.fromEnvironment('OPENAI_API_KEY')
-  static const String _apiKey = String.fromEnvironment('OPENAI_API_KEY', 
-    defaultValue: 'YOUR_OPENAI_API_KEY_HERE');
+  // TODO: Move API key to environment variable or secure config
+  // For now, set this to your OpenAI API key
+  static const String _apiKey = 'YOUR_OPENAI_API_KEY_HERE';
   // Use the chat completions endpoint (the stable API endpoint)
   static const String _apiUrl = 'https://api.openai.com/v1/chat/completions';
   
